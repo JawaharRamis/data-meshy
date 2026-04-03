@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/events/SubscriptionApproved.json",
+  "title": "SubscriptionApproved",
+  "description": "Event emitted when a subscription request is approved by the data product owner or Grants LF cross-account access.",
+  "type": "object",
+  "required": ["event_id", "domain", "timestamp", "version"],
+  "properties": {
+    "event_id": {
+      "description": "Unique event identifier for deduplication (UUID format).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "domain": {
+      "description": "Domain name.",
+      "type": "string"
+    },
+    "product_name": {
+      "description": "Product name.",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Composite key: domain#product_name.",
+      "type": "string"
+    },
+    "subscriber_domain": {
+      "description": "Domain requesting access.",
+      "type": "string"
+    },
+    "subscriber_account_id": {
+      "description": "AWS account ID of the subscriber.",
+      "type": "string"
+    },
+    "subscription_id": {
+      "description": "Subscription identifier.",
+      "type": "string"
+    },
+    "approved_by": {
+      "description": "Who approved the subscription.",
+      "type": "string"
+    },
+    "approved_at": {
+      "description": "Timestamp of approval.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "columns_requested": {
+      "description": "List of columns the subscriber requested access to.",
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "columns_excluded": {
+      "description": "Columns excluded from access (e.g., PII columns).",
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "classification": {
+      "description": "Data classification level.",
+      "type": "string"
+    },
+    "timestamp": {
+      "description": "Event timestamp.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "description": "Event schema version.",
+      "type": "string"
+    }
+  }
+}

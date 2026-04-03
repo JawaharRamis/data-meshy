@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/events/ProductDeprecated.json",
+  "title": "ProductDeprecated",
+  "description": "Event emitted when a product is deprecated by its owner.",
+  "type": "object",
+  "required": ["event_id", "domain", "timestamp", "version"],
+  "properties": {
+    "event_id": {
+      "description": "Unique event identifier for deduplication (UUID format).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "domain": {
+      "description": "Domain name this event belongs to.",
+      "type": "string"
+    },
+    "product_name": {
+      "description": "Product name.",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Composite key: domain#product_name.",
+      "type": "string"
+    },
+    "sunset_date": {
+      "description": "Date when the product will be fully retired and access revoked.",
+      "type": "string",
+      "format": "date"
+    },
+    "reason": {
+      "description": "Reason for deprecation.",
+      "type": "string"
+    },
+    "deprecation_initiated_by": {
+      "description": "Who initiated the deprecation.",
+      "type": "string"
+    },
+    "timestamp": {
+      "description": "Event timestamp.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "description": "Event schema version.",
+      "type": "string"
+    }
+  }
+}
