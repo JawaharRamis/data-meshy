@@ -105,6 +105,11 @@ output "mesh_lf_grantor_role_arn" {
   value       = aws_iam_role.mesh_lf_grantor.arn
 }
 
+output "mesh_kms_grantor_role_arn" {
+  description = "ARN of MeshKmsGrantorRole (creates KMS grants for consumer roles on domain keys)."
+  value       = aws_iam_role.mesh_kms_grantor.arn
+}
+
 output "mesh_catalog_writer_role_arn" {
   description = "ARN of MeshCatalogWriterRole (DynamoDB writes to catalog tables only)."
   value       = aws_iam_role.mesh_catalog_writer.arn
@@ -200,4 +205,22 @@ output "central_kms_alias_arn" {
 output "github_actions_oidc_provider_arn" {
   description = "ARN of the GitHub Actions OIDC provider."
   value       = aws_iam_openid_connect_provider.github_actions.arn
+}
+
+###############################################################################
+# API Gateway (Phase 2)
+###############################################################################
+output "api_endpoint_url" {
+  description = "Base URL of the mesh governance HTTP API. CLI appends route paths (e.g. /subscriptions)."
+  value       = aws_apigatewayv2_api.mesh_api.api_endpoint
+}
+
+output "api_id" {
+  description = "ID of the mesh governance HTTP API Gateway."
+  value       = aws_apigatewayv2_api.mesh_api.id
+}
+
+output "api_execution_arn" {
+  description = "Execution ARN of the mesh governance API (used for Lambda permission source_arn)."
+  value       = aws_apigatewayv2_api.mesh_api.execution_arn
 }

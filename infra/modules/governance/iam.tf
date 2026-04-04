@@ -595,3 +595,85 @@ resource "aws_iam_role_policy_attachment" "terraform_apply_admin" {
   role       = aws_iam_role.terraform_apply.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
+
+###############################################################################
+# Role: MeshKmsGrantorRole
+# Trust: Lambda service (central account only)
+# Permissions: kms:CreateGrant on domain KMS keys so that subscription
+#              approval Lambda can grant consumer roles decrypt access to
+#              the producer domain's gold bucket KMS key.
+# Scope: Restricted to keys tagged mesh:domain=* (enforced via condition).
+###############################################################################
+resource "aws_iam_role" "mesh_kms_grantor" {
+  name                 = "MeshKmsGrantorRole"
+  description          = "Grants KMS key access for domain data. Used by subscription approval Lambda to give consumer role decrypt access on producer gold bucket key."
+  max_session_duration = 3600
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = local.account_id
+          }
+        }
+      }
+    ]
+  })
+
+  tags = local.mandatory_tags
+}
+
+resource "aws_iam_role_policy" "mesh_kms_grantor_policy" {
+  name = "MeshKmsGrantorPolicy"
+  role = aws_iam_role.mesh_kms_grantor.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "KMSCreateGrantOnDomainKeys"
+        Effect = "Allow"
+        Action = [
+          "kms:CreateGrant",
+          "kms:DescribeKey",
+          "kms:ListGrants",
+          "kms:RevokeGrant"
+        ]
+        Resource = "*"
+        Condition = {
+          # Only allows grants on keys tagged for mesh domains
+          StringLike = {
+            "kms:ResourceAliases" = "alias/mesh-*"
+          }
+          # Restrict grant operations to decrypt/generate-data-key only
+          # (consumers should never manage keys — only use them for decryption)
+          StringEquals = {
+            "kms:GrantOperations" = [
+              "Decrypt",
+              "GenerateDataKey",
+              "GenerateDataKeyWithoutPlaintext",
+              "DescribeKey"
+            ]
+          }
+        }
+      },
+      {
+        Sid    = "LambdaBasicExecution"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/*"
+      }
+    ]
+  })
+}
