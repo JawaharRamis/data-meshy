@@ -1,0 +1,226 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/product_spec.json",
+  "title": "DataMeshy Product Specification",
+  "description": "JSON Schema (Draft 7) for validating product.yaml data product contracts. Used by CI (Stream 4) and the CLI spec_parser.",
+  "type": "object",
+  "required": ["schema_version", "product", "sla", "schema", "quality", "classification"],
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "description": "Monotonically increasing integer version of this product spec. Required by ADR-009.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "product": {
+      "type": "object",
+      "required": ["name", "domain", "owner"],
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "description": "Unique product name within the domain (snake_case).",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "domain": {
+          "description": "Domain name this product belongs to. Must match a registered domain in mesh-domains.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner": {
+          "description": "Product owner email address.",
+          "type": "string",
+          "format": "email"
+        },
+        "contact_channel": {
+          "type": "string"
+        }
+      }
+    },
+    "sla": {
+      "type": "object",
+      "required": ["refresh_frequency"],
+      "additionalProperties": true,
+      "properties": {
+        "refresh_frequency": {
+          "description": "How often data is refreshed.",
+          "type": "string",
+          "enum": ["hourly", "daily", "weekly", "monthly", "on_demand"]
+        },
+        "freshness_target": {
+          "description": "Maximum acceptable data age (e.g., '24 hours', '4 hours', '7 days').",
+          "type": "string",
+          "minLength": 1
+        },
+        "availability": {
+          "description": "Availability SLA target (e.g., '99.9%').",
+          "type": "string"
+        }
+      }
+    },
+    "schema": {
+      "type": "object",
+      "required": ["columns"],
+      "additionalProperties": true,
+      "properties": {
+        "format": {
+          "description": "Table format. Always 'iceberg' for mesh-published products.",
+          "type": "string",
+          "enum": ["iceberg"]
+        },
+        "columns": {
+          "description": "List of columns in the gold (published) layer.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "type", "pii", "nullable"],
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "description": "Column name (snake_case).",
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "type": {
+                "description": "Column data type (e.g., string, integer, decimal(10,2), date, timestamp).",
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "pii": {
+                "description": "Whether this column contains personally identifiable information.",
+                "type": "boolean"
+              },
+              "nullable": {
+                "description": "Whether this column can contain null values.",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "partition_by": {
+          "description": "Iceberg partitioning strategy.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["column"],
+            "additionalProperties": true,
+            "properties": {
+              "column": {
+                "type": "string",
+                "minLength": 1
+              },
+              "transform": {
+                "type": "string",
+                "enum": ["identity", "year", "month", "day", "hour", "bucket", "truncate"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["rules"],
+      "additionalProperties": true,
+      "properties": {
+        "rules": {
+          "description": "List of Glue Data Quality (DQDL) rules that must pass before publish.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "rule"],
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "description": "Human-readable rule name (used in alerts and reports).",
+                "type": "string",
+                "minLength": 1
+              },
+              "rule": {
+                "description": "DQDL rule expression (e.g., 'IsComplete \\'order_id\\'').",
+                "type": "string",
+                "minLength": 1
+              },
+              "threshold": {
+                "description": "Optional pass threshold (0.0–1.0). Defaults to Glue DQ default if not set.",
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0
+              }
+            }
+          }
+        },
+        "minimum_quality_score": {
+          "description": "Minimum overall quality score (0–100) for the pipeline to publish.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "tags": {
+      "description": "Tags for catalog discoverability and LF-Tag–based access control.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "classification": {
+      "description": "Data classification level. Determines default access policy and approval requirements.",
+      "type": "string",
+      "enum": ["public", "internal", "confidential", "restricted"]
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["system"],
+            "additionalProperties": true,
+            "properties": {
+              "system": {
+                "description": "Name of the source system.",
+                "type": "string",
+                "minLength": 1
+              },
+              "table": {
+                "description": "Source table name (schema.table format for JDBC sources).",
+                "type": "string"
+              },
+              "endpoint": {
+                "description": "API endpoint path for API sources.",
+                "type": "string"
+              },
+              "credentials_secret_arn": {
+                "description": "AWS Secrets Manager ARN for source credentials.",
+                "type": "string",
+                "pattern": "^arn:aws:secretsmanager:"
+              }
+            }
+          }
+        },
+        "pipeline_type": {
+          "description": "Pipeline technology used to produce this product.",
+          "type": "string",
+          "enum": ["glue_step_functions", "dbt", "lambda", "emr", "flink", "external"]
+        }
+      }
+    }
+  }
+}

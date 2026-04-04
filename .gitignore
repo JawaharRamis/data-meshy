@@ -4,7 +4,10 @@ CLAUDE.md
 
 # Plans (local only)
 plan/
+
+# Python
 __pycache__/
 *.pyc
+.pytest_cache/
 .coverage
 htmlcov/

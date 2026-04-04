@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/events/DomainOnboarded.json",
+  "title": "DomainOnboarded",
+  "description": "Event emitted when a new domain is onboarded into the mesh.",
+  "type": "object",
+  "required": ["event_id", "domain", "timestamp", "version"],
+  "properties": {
+    "event_id": {
+      "description": "Unique event identifier for deduplication (UUID format).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "domain": {
+      "description": "Domain name this event belongs to.",
+      "type": "string"
+    },
+    "account_id": {
+      "description": "AWS account ID of the onboarded domain.",
+      "type": "string"
+    },
+    "owner": {
+      "description": "Domain owner contact email.",
+      "type": "string"
+    },
+    "status": {
+      "description": "Domain status (ACTIVE, INACTIVE).",
+      "type": "string",
+      "enum": ["ACTIVE", "INACTIVE"]
+    },
+    "onboarded_at": {
+      "description": "Timestamp when the domain was onboarded.",
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

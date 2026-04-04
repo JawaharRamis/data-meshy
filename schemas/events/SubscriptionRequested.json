@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/events/SubscriptionRequested.json",
+  "title": "SubscriptionRequested",
+  "description": "Event emitted when a consumer requests access to a data product.",
+  "type": "object",
+  "required": ["event_id", "domain", "timestamp", "version"],
+  "properties": {
+    "event_id": {
+      "description": "Unique event identifier for deduplication (UUID format).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "domain": {
+      "description": "Consumer domain name.",
+      "type": "string"
+    },
+    "product_name": {
+      "description": "Product name requested.",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Composite key: domain#product_name.",
+      "type": "string"
+    },
+    "consumer_domain": {
+      "description": "Domain requesting access.",
+      "type": "string"
+    },
+    "consumer_account_id": {
+      "description": "AWS account ID of the consumer.",
+      "type": "string"
+    },
+    "requested_columns": {
+      "description": "Columns the consumer is requesting access to.",
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "justification": {
+      "description": "Business justification for the subscription request.",
+      "type": "string"
+    },
+    "timestamp": {
+      "description": "Event timestamp.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "description": "Event schema version.",
+      "type": "string"
+    }
+  }
+}

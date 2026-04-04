@@ -1,0 +1,153 @@
+# product.yaml — Data Product Contract Template
+# -----------------------------------------------
+# Replace all {{placeholder}} values with your domain-specific values.
+# This file is version-controlled alongside your pipeline code.
+# CI will validate this file against schemas/product_spec.json on every PR.
+#
+# Reference: docs/domain-engineer-guide.md
+# Schema:    schemas/product_spec.json
+# ADR:       ADR-009 (Data Product Versioning)
+# -----------------------------------------------
+
+# Schema version (integer, monotonically increasing).
+# Increment on any change to the product spec.
+# Breaking schema changes require a new major version (e.g., customer_orders_v2).
+schema_version: 1
+
+product:
+  # Unique product name within the domain. Use snake_case. e.g. customer_orders
+  name: "{{product_name}}"
+
+  # Domain this product belongs to. Must match the registered domain name in the mesh.
+  domain: "{{domain_name}}"
+
+  # Human-readable description of what this product contains and who it is for.
+  description: "{{A concise description of the data product and its intended consumers}}"
+
+  # Product owner email. Receives quality alerts, freshness violations, subscription requests.
+  owner: "{{team-email@company.com}}"
+
+  # Slack channel or other support channel for consumers to ask questions.
+  contact_channel: "{{#your-data-support-channel}}"
+
+# Service Level Agreement — consumers use this to assess reliability.
+sla:
+  # How often is the data refreshed? Options: hourly, daily, weekly, monthly, on_demand
+  refresh_frequency: "{{daily}}"
+
+  # How old can the data be before it is considered stale?
+  # Express as a duration string: "24 hours", "4 hours", "7 days"
+  freshness_target: "{{24 hours}}"
+
+  # Target availability percentage (99.9% = three nines).
+  availability: "{{99.9%}}"
+
+# Schema definition — used for schema drift detection, LF column filtering, and consumer documentation.
+schema:
+  # Table format. Always "iceberg" for mesh-published products.
+  format: iceberg
+
+  # Columns in the gold (published) layer.
+  # Every column must have: name, type, pii, nullable.
+  # Add a description for consumer clarity.
+  columns:
+    - name: "{{primary_key_column}}"
+      type: string
+      description: "{{Unique identifier for each record}}"
+      pii: false
+      nullable: false
+
+    # Example: a PII column (access restricted by Lake Formation column filtering)
+    - name: "{{email_column}}"
+      type: string
+      description: "{{Customer email address — PII: restricted}}"
+      pii: true
+      nullable: false
+
+    # Example: a numeric column
+    - name: "{{amount_column}}"
+      type: "decimal(10,2)"
+      description: "{{Transaction amount in USD}}"
+      pii: false
+      nullable: false
+
+    # Example: a date column used for partitioning
+    - name: "{{date_column}}"
+      type: date
+      description: "{{Date the record was created}}"
+      pii: false
+      nullable: false
+
+    # Example: an enriched/derived column (gold layer only)
+    - name: "{{segment_column}}"
+      type: string
+      description: "{{Consumer-facing derived attribute — e.g. customer segment}}"
+      pii: false
+      nullable: true
+
+    # Add more columns below...
+
+  # Partition strategy for the Iceberg gold table.
+  # Iceberg supports: identity, year, month, day, hour, bucket, truncate transforms.
+  partition_by:
+    - column: "{{date_column}}"
+      transform: month   # Partition by month for efficient time-range queries
+
+# Quality contract — rules that must pass before data is published.
+# Rules are evaluated by Glue Data Quality (DQDL syntax).
+# See: https://docs.aws.amazon.com/glue/latest/dg/dqdl.html
+quality:
+  rules:
+    # Completeness: no nulls in this column
+    - name: "{{primary_key_column}}_complete"
+      rule: "IsComplete '{{primary_key_column}}'"
+      threshold: 1.0   # 100% complete — no nulls allowed
+
+    # Uniqueness: no duplicate primary keys
+    - name: "{{primary_key_column}}_unique"
+      rule: "IsUnique '{{primary_key_column}}'"
+
+    # Value range: numeric column must be positive
+    - name: "{{amount_column}}_positive"
+      rule: "ColumnValues '{{amount_column}}' > 0"
+
+    # Freshness: records should be within the SLA window
+    - name: "{{date_column}}_recent"
+      rule: "Freshness '{{date_column}}' <= 2 days"
+
+    # Add domain-specific quality rules below...
+
+  # Minimum overall quality score (0–100) for the pipeline to proceed to publish.
+  # If the score falls below this threshold, a QualityAlert is emitted and publish is blocked.
+  minimum_quality_score: 95
+
+# Tags for catalog discoverability and Lake Formation LF-Tag–based access control.
+# Include domain-specific business tags and data governance tags.
+tags:
+  - "{{business_area}}"       # e.g. ecommerce, finance, marketing
+  - "{{data_type}}"           # e.g. transactions, events, dimensions
+  - "{{sensitivity_hint}}"    # e.g. pii (if any PII columns exist)
+
+# Data classification — determines default access policy.
+# One of: public | internal | confidential | restricted
+# - public:       No restriction. Anyone in the org can subscribe without approval.
+# - internal:     Requires subscription request. Auto-approved for same-BU consumers.
+# - confidential: Manual approval required. PII data goes here.
+# - restricted:   Explicit governance team sign-off required. Highly sensitive data.
+classification: "{{confidential}}"
+
+# Data lineage — source systems that feed this product.
+lineage:
+  sources:
+    - system: "{{source_system_name}}"      # e.g. orders-postgres-db
+      table: "{{source_schema.table_name}}" # e.g. public.orders
+      # credentials_secret_arn: "arn:aws:secretsmanager:{region}:{account}:secret:{name}"
+      # Uncomment and set credentials_secret_arn if the Glue job needs DB credentials.
+
+    # Optional: add a second source (e.g. enrichment API, reference table)
+    # - system: "{{crm-api}}"
+    #   endpoint: "{{/customers/segments}}"
+
+  # If your team uses a non-standard pipeline (not Glue/Step Functions), document it here.
+  # Accepted values: glue_step_functions (default), dbt, lambda, emr, flink, external
+  pipeline_type: glue_step_functions
