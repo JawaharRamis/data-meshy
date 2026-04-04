@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/events/ProductCreated.json",
+  "title": "ProductCreated",
+  "description": "Event emitted when a new data product is created and registered in the catalog.",
+  "type": "object",
+  "required": ["event_id", "domain", "timestamp", "version"],
+  "properties": {
+    "event_id": {
+      "description": "Unique event identifier for deduplication (UUID format).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "domain": {
+      "description": "Domain name this event belongs to.",
+      "type": "string"
+    },
+    "product_name": {
+      "description": "Product name.",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Composite key: domain#product_name.",
+      "type": "string"
+    },
+    "owner": {
+      "description": "Product owner email.",
+      "type": "string"
+    },
+    "classification": {
+      "description": "Data classification level.",
+      "type": "string",
+      "enum": ["public", "internal", "confidential", "restricted"]
+    },
+    "description": {
+      "description": "Product description.",
+      "type": "string"
+    },
+    "tags": {
+      "description": "Product tags for catalog discoverability.",
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "schema_version": {
+      "description": "Schema version of the product spec.",
+      "type": "integer"
+    },
+    "sla": {
+      "description": "Service Level Agreement.",
+      "type": "object",
+      "properties": {
+        "refresh_frequency": {"type": "string"},
+        "freshness_target": {"type": "string"}
+      }
+    },
+    "timestamp": {
+      "description": "Event timestamp.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "description": "Event schema version.",
+      "type": "string"
+    }
+  }
+}

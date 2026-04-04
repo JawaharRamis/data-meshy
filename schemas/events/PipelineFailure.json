@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/events/PipelineFailure.json",
+  "title": "PipelineFailure",
+  "description": "Event emitted when a Step Functions pipeline fails.",
+  "type": "object",
+  "required": ["event_id", "domain", "timestamp", "version"],
+  "properties": {
+    "event_id": {
+      "description": "Unique event identifier for deduplication (UUID format).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "domain": {
+      "description": "Domain name.",
+      "type": "string"
+    },
+    "product_name": {
+      "description": "Product name.",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Composite key: domain#product_name.",
+      "type": "string"
+    },
+    "pipeline_execution_arn": {
+      "description": "Step Functions execution ARN.",
+      "type": "string"
+    },
+    "error_message": {
+      "description": "Error message from the failed pipeline step.",
+      "type": "string"
+    },
+    "error_type": {
+      "description": "Error classification.",
+      "type": "string"
+    },
+    "failed_step": {
+      "description": "Name of the failed Step Functions state.",
+      "type": "string"
+    },
+    "timestamp": {
+      "description": "Event timestamp.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "description": "Event schema version.",
+      "type": "string"
+    }
+  }
+}

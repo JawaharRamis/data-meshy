@@ -4,3 +4,11 @@ CLAUDE.md
 
 # Plans (local only)
 plan/
+__pycache__/
+*.pyc
+__pycache__/
+*.pyc
+.pytest_cache/
+__pycache__/
+*.pyc
+.pytest_cache/

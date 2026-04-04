@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/events/SchemaChanged.json",
+  "title": "SchemaChanged",
+  "description": "Event emitted when a schema change is detected for a product.",
+  "type": "object",
+  "required": ["event_id", "domain", "timestamp", "version"],
+  "properties": {
+    "event_id": {
+      "description": "Unique event identifier for deduplication (UUID format).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "domain": {
+      "description": "Domain name this event belongs to.",
+      "type": "string"
+    },
+    "product_name": {
+      "description": "Product name.",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Composite key: domain#product_name.",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Schema version after change.",
+      "type": "integer"
+    },
+    "previous_schema_version": {
+      "description": "Schema version before change.",
+      "type": "integer"
+    },
+    "breaking": {
+      "description": "Whether this is a breaking change.",
+      "type": "boolean"
+    },
+    "added_columns": {
+      "description": "Columns added in the new schema.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string" }
+        }
+      }
+    },
+    "removed_columns": {
+      "description": "Columns removed from the old schema.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" }
+        }
+      }
+    },
+    "changed_columns": {
+      "description": "Columns with type changes.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "old_type", "new_type"],
+        "properties": {
+          "name": { "type": "string" },
+          "old_type": { "type": "string" },
+          "new_type": { "type": "string" }
+        }
+      }
+    }
+  }
+}
