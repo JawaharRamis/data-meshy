@@ -24,10 +24,10 @@ resource "aws_apigatewayv2_api" "mesh_api" {
   description   = "Data Meshy governance and subscription management API. All routes require IAM (SigV4) auth."
 
   cors_configuration {
-    allow_headers  = ["content-type", "x-amz-date", "authorization", "x-api-key", "x-amz-security-token"]
-    allow_methods  = ["GET", "POST", "DELETE", "OPTIONS"]
-    allow_origins  = ["*"]
-    max_age        = 300
+    allow_headers = ["content-type", "x-amz-date", "authorization", "x-api-key", "x-amz-security-token"]
+    allow_methods = ["GET", "POST", "DELETE", "OPTIONS"]
+    allow_origins = ["*"]
+    max_age       = 300
   }
 
   tags = merge(local.mandatory_tags, {

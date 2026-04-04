@@ -12,8 +12,8 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
 locals {
-  account_id     = data.aws_caller_identity.current.account_id
-  region         = data.aws_region.current.name
+  account_id = data.aws_caller_identity.current.account_id
+  region     = data.aws_region.current.name
   mandatory_tags = merge(var.tags, {
     Project     = "data-meshy"
     ManagedBy   = "terraform"
@@ -169,9 +169,9 @@ resource "aws_iam_role_policy" "subscription_eb_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "StartSubscriptionSFN"
-        Effect = "Allow"
-        Action = ["states:StartExecution"]
+        Sid      = "StartSubscriptionSFN"
+        Effect   = "Allow"
+        Action   = ["states:StartExecution"]
         Resource = aws_sfn_state_machine.subscription_provisioner.arn
       }
     ]

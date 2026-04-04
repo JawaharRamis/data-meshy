@@ -71,22 +71,22 @@ module "domain_account" {
 module "data_product" {
   source = "../../modules/data-product"
 
-  domain        = var.domain
-  product_name  = var.product_name
-  environment   = var.environment
-  aws_region    = var.aws_region
+  domain       = var.domain
+  product_name = var.product_name
+  environment  = var.environment
+  aws_region   = var.aws_region
 
   # Consumed from domain-account module outputs
-  raw_bucket_name              = module.domain_account.raw_bucket_name
-  silver_bucket_name           = module.domain_account.silver_bucket_name
-  gold_bucket_name             = module.domain_account.gold_bucket_name
-  glue_catalog_db_raw          = module.domain_account.glue_catalog_db_raw
-  glue_catalog_db_silver       = module.domain_account.glue_catalog_db_silver
-  glue_catalog_db_gold         = module.domain_account.glue_catalog_db_gold
-  glue_job_execution_role_arn  = module.domain_account.glue_job_execution_role_arn
-  mesh_event_role_arn          = module.domain_account.mesh_event_role_arn
-  domain_kms_key_arn           = module.domain_account.domain_kms_key_arn
-  domain_event_bus_arn         = module.domain_account.domain_event_bus_arn
+  raw_bucket_name             = module.domain_account.raw_bucket_name
+  silver_bucket_name          = module.domain_account.silver_bucket_name
+  gold_bucket_name            = module.domain_account.gold_bucket_name
+  glue_catalog_db_raw         = module.domain_account.glue_catalog_db_raw
+  glue_catalog_db_silver      = module.domain_account.glue_catalog_db_silver
+  glue_catalog_db_gold        = module.domain_account.glue_catalog_db_gold
+  glue_job_execution_role_arn = module.domain_account.glue_job_execution_role_arn
+  mesh_event_role_arn         = module.domain_account.mesh_event_role_arn
+  domain_kms_key_arn          = module.domain_account.domain_kms_key_arn
+  domain_event_bus_arn        = module.domain_account.domain_event_bus_arn
 
   # Consumed from governance module outputs (Stream 1)
   central_event_bus_arn          = var.central_event_bus_arn
@@ -238,8 +238,8 @@ resource "aws_iam_role_policy" "marketing_glue_consumer_policy" {
           "s3:ListMultipartUploadParts"
         ]
         Resource = [
-          "${module.domain_account.gold_bucket_arn}/athena-results/*",
-          module.domain_account.gold_bucket_arn
+          "arn:aws:s3:::${module.domain_account.gold_bucket_name}/athena-results/*",
+          "arn:aws:s3:::${module.domain_account.gold_bucket_name}"
         ]
       },
       {

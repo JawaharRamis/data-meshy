@@ -20,9 +20,9 @@ resource "aws_organizations_policy" "domain_ou_guardrails" {
     Statement = [
       # 1. Deny CloudTrail log deletion
       {
-        Sid      = "DenyCloudTrailLogDeletion"
-        Effect   = "Deny"
-        Action   = [
+        Sid    = "DenyCloudTrailLogDeletion"
+        Effect = "Deny"
+        Action = [
           "cloudtrail:DeleteTrail",
           "cloudtrail:StopLogging",
           "cloudtrail:UpdateTrail",
@@ -56,9 +56,9 @@ resource "aws_organizations_policy" "domain_ou_guardrails" {
 
       # 3. Require S3 SSE-KMS (not just any encryption — must be aws:kms)
       {
-        Sid    = "RequireS3SSEKMS"
-        Effect = "Deny"
-        Action = ["s3:PutObject"]
+        Sid      = "RequireS3SSEKMS"
+        Effect   = "Deny"
+        Action   = ["s3:PutObject"]
         Resource = "*"
         Condition = {
           StringNotEquals = {
@@ -90,9 +90,9 @@ resource "aws_organizations_policy" "domain_ou_guardrails" {
 
       # 4b. Deny turning off S3 Block Public Access
       {
-        Sid    = "DenyDisableS3BlockPublicAccess"
-        Effect = "Deny"
-        Action = "s3:PutBucketPublicAccessBlock"
+        Sid      = "DenyDisableS3BlockPublicAccess"
+        Effect   = "Deny"
+        Action   = "s3:PutBucketPublicAccessBlock"
         Resource = "*"
         Condition = {
           StringEquals = {
@@ -131,9 +131,9 @@ resource "aws_organizations_policy" "domain_ou_guardrails" {
 
       # 6. Deny cross-org AssumeRole (prevents lateral movement between domain accounts)
       {
-        Sid    = "DenyCrossOrgAssumeRole"
-        Effect = "Deny"
-        Action = "sts:AssumeRole"
+        Sid      = "DenyCrossOrgAssumeRole"
+        Effect   = "Deny"
+        Action   = "sts:AssumeRole"
         Resource = "*"
         Condition = {
           StringNotEquals = {
@@ -182,9 +182,9 @@ resource "aws_organizations_policy" "platform_ou_guardrails" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "RequireMFAForAdminRole"
-        Effect = "Deny"
-        Action = "sts:AssumeRole"
+        Sid      = "RequireMFAForAdminRole"
+        Effect   = "Deny"
+        Action   = "sts:AssumeRole"
         Resource = "arn:aws:iam::*:role/MeshAdminRole"
         Condition = {
           BoolIfExists = {
