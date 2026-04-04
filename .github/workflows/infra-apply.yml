@@ -1,0 +1,88 @@
+name: Terraform Apply
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra-plan.yml"
+      - ".github/workflows/infra-apply.yml"
+
+permissions:
+  id-token: write   # Required for OIDC token exchange
+  contents: read
+
+jobs:
+  apply:
+    name: Terraform Apply — ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    environment: terraform-apply  # Manual approval gate in GitHub Environments
+
+    strategy:
+      fail-fast: false
+      matrix:
+        environment:
+          - central
+        include:
+          - environment: central
+            working_directory: infra/environments/central
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.working_directory }}
+
+    steps:
+      # Pinned to SHA — never floating version tags.
+      # Dependabot keeps these current automatically.
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          role-to-assume: ${{ vars.TF_APPLY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: TerraformApply-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
+        with:
+          terraform_version: "1.7.5"
+          terraform_wrapper: true
+
+      - name: Terraform Init
+        id: init
+        run: |
+          terraform init \
+            -backend-config="role_arn=${{ vars.TF_APPLY_ROLE_ARN }}"
+        env:
+          TF_INPUT: "false"
+
+      - name: Terraform Plan (for review)
+        id: plan
+        run: |
+          terraform plan \
+            -no-color \
+            -input=false \
+            -out=tfplan-${{ matrix.environment }}.bin
+        env:
+          TF_INPUT: "false"
+
+      - name: Terraform Apply
+        id: apply
+        run: |
+          terraform apply \
+            -auto-approve \
+            -input=false \
+            tfplan-${{ matrix.environment }}.bin
+        env:
+          TF_INPUT: "false"
+
+      - name: Upload plan artifact (for audit trail)
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
+        if: always()
+        with:
+          name: tfplan-apply-${{ matrix.environment }}-${{ github.run_id }}
+          path: ${{ matrix.working_directory }}/tfplan-${{ matrix.environment }}.bin
+          retention-days: 30

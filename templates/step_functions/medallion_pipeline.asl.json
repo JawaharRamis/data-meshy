@@ -1,0 +1,439 @@
+{
+  "Comment": "Data Meshy — Medallion Pipeline State Machine. Orchestrates Raw -> Silver -> Gold -> Schema Validate -> Quality Check -> Publish/Alert -> Release Lock -> Iceberg Maintenance.",
+  "TimeoutSeconds": 7200,
+  "StartAt": "AcquireLock",
+  "States": {
+    "AcquireLock": {
+      "Type": "Task",
+      "Comment": "Write a conditional lock record to DynamoDB. Fails if another execution holds the lock.",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName.$": "$.pipeline_locks_table_name",
+        "Key": {
+          "pk": {
+            "S.$": "$.product_id"
+          },
+          "sk": {
+            "S": "LOCK"
+          }
+        },
+        "UpdateExpression": "SET #owner = :owner, #ttl = :ttl, #started = :started",
+        "ConditionExpression": "attribute_not_exists(#sk)",
+        "ExpressionAttributeNames": {
+          "#sk": "sk",
+          "#owner": "owner",
+          "#ttl": "ttl",
+          "#started": "started_at"
+        },
+        "ExpressionAttributeValues": {
+          ":owner": {
+            "S.$": "$$.Execution.Id"
+          },
+          ":ttl": {
+            "N.$": "States.Format('{}', States.MathAdd(States.StringToJson(States.Format('{}', $$.Execution.StartTime)), 10800))"
+          },
+          ":started": {
+            "S.$": "$$.Execution.StartTime"
+          }
+        }
+      },
+      "ResultPath": "$.lock_result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "DynamoDB.ConditionalCheckFailedException",
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ConcurrentRunDetected"
+        }
+      ],
+      "Next": "RawIngestion"
+    },
+    "ConcurrentRunDetected": {
+      "Type": "Fail",
+      "Error": "ConcurrentRunDetected",
+      "Cause": "Another pipeline execution is already running for this product. Lock is held in DynamoDB."
+    },
+    "RawIngestion": {
+      "Type": "Task",
+      "Comment": "Land source data as-is into the raw (bronze) S3 layer via Glue job.",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "TimeoutSeconds": 1800,
+      "HeartbeatSeconds": 300,
+      "Parameters": {
+        "JobName": "raw_ingestion",
+        "Arguments": {
+          "--domain.$": "$.domain",
+          "--product_name.$": "$.product_name",
+          "--raw_bucket.$": "$.raw_bucket",
+          "--source_connection_name.$": "$.source_connection_name",
+          "--raw_db.$": "$.raw_db",
+          "--table_name.$": "$.table_name",
+          "--job-bookmark-option": "job-bookmark-enable",
+          "--enable-job-insights": "true"
+        }
+      },
+      "ResultPath": "$.raw_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.ServiceException",
+            "Glue.ThrottlingException"
+          ],
+          "IntervalSeconds": 30,
+          "BackoffRate": 2.0,
+          "MaxAttempts": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ErrorHandler"
+        }
+      ],
+      "Next": "SilverTransform"
+    },
+    "SilverTransform": {
+      "Type": "Task",
+      "Comment": "Validate, deduplicate, and enforce schema. Write to Iceberg silver table.",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "TimeoutSeconds": 1800,
+      "HeartbeatSeconds": 300,
+      "Parameters": {
+        "JobName": "silver_transform",
+        "Arguments": {
+          "--domain.$": "$.domain",
+          "--product_name.$": "$.product_name",
+          "--raw_bucket.$": "$.raw_bucket",
+          "--silver_bucket.$": "$.silver_bucket",
+          "--raw_db.$": "$.raw_db",
+          "--silver_db.$": "$.silver_db",
+          "--table_name.$": "$.table_name",
+          "--quality_ruleset_name.$": "$.quality_ruleset_name",
+          "--enable-job-insights": "true"
+        }
+      },
+      "ResultPath": "$.silver_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.ServiceException",
+            "Glue.ThrottlingException"
+          ],
+          "IntervalSeconds": 30,
+          "BackoffRate": 2.0,
+          "MaxAttempts": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ErrorHandler"
+        }
+      ],
+      "Next": "GoldAggregate"
+    },
+    "GoldAggregate": {
+      "Type": "Task",
+      "Comment": "Apply business logic and write to Iceberg gold table via MERGE INTO (upsert).",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "TimeoutSeconds": 1800,
+      "HeartbeatSeconds": 300,
+      "Parameters": {
+        "JobName": "gold_aggregate",
+        "Arguments": {
+          "--domain.$": "$.domain",
+          "--product_name.$": "$.product_name",
+          "--silver_bucket.$": "$.silver_bucket",
+          "--gold_bucket.$": "$.gold_bucket",
+          "--silver_db.$": "$.silver_db",
+          "--gold_db.$": "$.gold_db",
+          "--table_name.$": "$.table_name",
+          "--enable-job-insights": "true"
+        }
+      },
+      "ResultPath": "$.gold_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.ServiceException",
+            "Glue.ThrottlingException"
+          ],
+          "IntervalSeconds": 30,
+          "BackoffRate": 2.0,
+          "MaxAttempts": 3
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ErrorHandler"
+        }
+      ],
+      "Next": "SchemaValidate"
+    },
+    "SchemaValidate": {
+      "Type": "Task",
+      "Comment": "Lambda: compare live Iceberg gold table schema against product.yaml declared columns. Blocks publish if undeclared columns found or breaking change detected without version bump.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.schema_validate_function_arn",
+        "Payload": {
+          "domain.$": "$.domain",
+          "product_name.$": "$.product_name",
+          "product_id.$": "$.product_id",
+          "gold_db.$": "$.gold_db",
+          "table_name.$": "$.table_name",
+          "products_table_name.$": "$.products_table_name"
+        }
+      },
+      "ResultPath": "$.schema_validate_result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ErrorHandler"
+        }
+      ],
+      "Next": "QualityCheck"
+    },
+    "QualityCheck": {
+      "Type": "Task",
+      "Comment": "Invoke Lambda which triggers Glue Data Quality evaluation on the gold table and returns pass/fail + score.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.quality_check_function_arn",
+        "Payload": {
+          "domain.$": "$.domain",
+          "product_name.$": "$.product_name",
+          "product_id.$": "$.product_id",
+          "gold_db.$": "$.gold_db",
+          "table_name.$": "$.table_name",
+          "quality_ruleset_name.$": "$.quality_ruleset_name",
+          "products_table_name.$": "$.products_table_name"
+        }
+      },
+      "ResultPath": "$.quality_result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ErrorHandler"
+        }
+      ],
+      "Next": "QualityPass"
+    },
+    "QualityPass": {
+      "Type": "Choice",
+      "Comment": "Branch on quality check result. $.quality_result.Payload.passed must be true for publish path.",
+      "Choices": [
+        {
+          "Variable": "$.quality_result.Payload.passed",
+          "BooleanEquals": true,
+          "Next": "PublishCatalog"
+        }
+      ],
+      "Default": "QualityAlert"
+    },
+    "PublishCatalog": {
+      "Type": "Task",
+      "Comment": "Lambda: update mesh-products DynamoDB entry and emit ProductRefreshed event to central EventBridge bus.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.catalog_writer_function_arn",
+        "Payload": {
+          "event_type": "ProductRefreshed",
+          "domain.$": "$.domain",
+          "product_name.$": "$.product_name",
+          "product_id.$": "$.product_id",
+          "quality_score.$": "$.quality_result.Payload.quality_score",
+          "rows_written.$": "$.gold_result.JobRunState",
+          "pipeline_execution_arn.$": "$$.Execution.Id",
+          "products_table_name.$": "$.products_table_name",
+          "central_event_bus_arn.$": "$.central_event_bus_arn",
+          "audit_log_table_name.$": "$.audit_log_table_name"
+        }
+      },
+      "ResultPath": "$.publish_result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ErrorHandler"
+        }
+      ],
+      "Next": "ReleaseLock"
+    },
+    "QualityAlert": {
+      "Type": "Task",
+      "Comment": "Lambda: mark product 'degraded' in catalog, emit QualityAlert event, send SNS notification to product owner.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.quality_alert_function_arn",
+        "Payload": {
+          "domain.$": "$.domain",
+          "product_name.$": "$.product_name",
+          "product_id.$": "$.product_id",
+          "quality_score.$": "$.quality_result.Payload.quality_score",
+          "failed_rules.$": "$.quality_result.Payload.failed_rules",
+          "pipeline_execution_arn.$": "$$.Execution.Id",
+          "products_table_name.$": "$.products_table_name",
+          "central_event_bus_arn.$": "$.central_event_bus_arn",
+          "audit_log_table_name.$": "$.audit_log_table_name"
+        }
+      },
+      "ResultPath": "$.alert_result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ErrorHandler"
+        }
+      ],
+      "Next": "ReleaseLockAfterAlert"
+    },
+    "ReleaseLock": {
+      "Type": "Task",
+      "Comment": "Remove pipeline lock from DynamoDB after successful publish.",
+      "Resource": "arn:aws:states:::dynamodb:deleteItem",
+      "Parameters": {
+        "TableName.$": "$.pipeline_locks_table_name",
+        "Key": {
+          "pk": {
+            "S.$": "$.product_id"
+          },
+          "sk": {
+            "S": "LOCK"
+          }
+        }
+      },
+      "ResultPath": "$.release_result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ErrorHandler"
+        }
+      ],
+      "Next": "IcebergMaintenance"
+    },
+    "ReleaseLockAfterAlert": {
+      "Type": "Task",
+      "Comment": "Remove pipeline lock from DynamoDB after quality alert (quality failure path).",
+      "Resource": "arn:aws:states:::dynamodb:deleteItem",
+      "Parameters": {
+        "TableName.$": "$.pipeline_locks_table_name",
+        "Key": {
+          "pk": {
+            "S.$": "$.product_id"
+          },
+          "sk": {
+            "S": "LOCK"
+          }
+        }
+      },
+      "ResultPath": "$.release_result",
+      "End": true
+    },
+    "IcebergMaintenance": {
+      "Type": "Task",
+      "Comment": "Run Iceberg OPTIMIZE + VACUUM + orphan file cleanup. Runs after ReleaseLock so consumers are not blocked. Non-fatal: failure routes to MaintenanceFailure, not ErrorHandler.",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "TimeoutSeconds": 1200,
+      "HeartbeatSeconds": 300,
+      "Parameters": {
+        "JobName": "iceberg_maintenance",
+        "Arguments": {
+          "--domain.$": "$.domain",
+          "--product_name.$": "$.product_name",
+          "--gold_bucket.$": "$.gold_bucket",
+          "--gold_db.$": "$.gold_db",
+          "--table_name.$": "$.table_name",
+          "--target_file_size_mb": "128",
+          "--snapshot_retention_days": "7",
+          "--enable-job-insights": "true"
+        }
+      },
+      "ResultPath": "$.maintenance_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.ServiceException",
+            "Glue.ThrottlingException"
+          ],
+          "IntervalSeconds": 30,
+          "BackoffRate": 2.0,
+          "MaxAttempts": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.maintenance_error",
+          "Next": "MaintenanceFailure"
+        }
+      ],
+      "End": true
+    },
+    "MaintenanceFailure": {
+      "Type": "Task",
+      "Comment": "Iceberg maintenance failed. Log the error and emit a CloudWatch metric. Pipeline is still considered successful — consumers were not affected. Does NOT route to ErrorHandler.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.maintenance_alert_function_arn",
+        "Payload": {
+          "domain.$": "$.domain",
+          "product_name.$": "$.product_name",
+          "product_id.$": "$.product_id",
+          "error.$": "$.maintenance_error",
+          "pipeline_execution_arn.$": "$$.Execution.Id",
+          "audit_log_table_name.$": "$.audit_log_table_name"
+        }
+      },
+      "ResultPath": "$.maintenance_alert_result",
+      "End": true
+    },
+    "ErrorHandler": {
+      "Type": "Task",
+      "Comment": "Catch-all error handler: emit PipelineFailure event, write to audit log, release pipeline lock, route event to DLQ.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.error_handler_function_arn",
+        "Payload": {
+          "domain.$": "$.domain",
+          "product_name.$": "$.product_name",
+          "product_id.$": "$.product_id",
+          "error.$": "$.error",
+          "pipeline_execution_arn.$": "$$.Execution.Id",
+          "pipeline_locks_table_name.$": "$.pipeline_locks_table_name",
+          "central_event_bus_arn.$": "$.central_event_bus_arn",
+          "audit_log_table_name.$": "$.audit_log_table_name"
+        }
+      },
+      "ResultPath": "$.error_handler_result",
+      "End": true
+    }
+  }
+}

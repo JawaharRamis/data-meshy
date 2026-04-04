@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/events/FreshnessViolation.json",
+  "title": "FreshnessViolation",
+  "description": "Event emitted when a product's freshness SLA is breached.",
+  "type": "object",
+  "required": ["event_id", "domain", "timestamp", "version"],
+  "properties": {
+    "event_id": {
+      "description": "Unique event identifier for deduplication (UUID format).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "domain": {
+      "description": "Domain name this event belongs to.",
+      "type": "string"
+    },
+    "product_name": {
+      "description": "Product name that freshness SLA was breached.",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Composite key: domain#product_name.",
+      "type": "string"
+    },
+    "violation_reason": {
+      "description": "Reason for the SLA breach.",
+      "type": "string"
+    },
+    "age_hours": {
+      "description": "How many hours since last successful refresh.",
+      "type": "number"
+    },
+    "sla_target_hours": {
+      "description": "Maximum allowed hours between refreshes per SLA.",
+      "type": "number"
+    },
+    "last_refreshed_at": {
+      "description": "Timestamp of the last successful refresh.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "timestamp": {
+      "description": "Event timestamp.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "description": "Event schema version.",
+      "type": "string"
+    }
+  }
+}
