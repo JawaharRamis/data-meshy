@@ -5,11 +5,10 @@ CHANGELOG.md
 
 # Plans (local only)
 plan/
-__pycache__/
-*.pyc
-__pycache__/
-*.pyc
-.pytest_cache/
+
+# Python
 __pycache__/
 *.pyc
 .pytest_cache/
+.coverage
+htmlcov/

@@ -1,0 +1,40 @@
+name: CLI Test Suite
+
+on:
+  push:
+    branches: [phase/1/cli-ci-example]
+    paths:
+      - "cli/**"
+      - ".github/workflows/cli-test.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "cli/**"
+      - ".github/workflows/cli-test.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cli
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-action@0c3e4e4f40637684e162fa38e9c363b0c39bf398 # v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run tests with coverage
+        run: uv run pytest tests/ -v --tb=short --cov=datameshy --cov-report=term-missing --cov-fail-under=80

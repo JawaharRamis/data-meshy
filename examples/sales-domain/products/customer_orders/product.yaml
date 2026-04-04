@@ -1,0 +1,76 @@
+# product.yaml — customer_orders data product (PRD Section 8)
+# Domain: sales
+# Schema version: 1
+
+product:
+  name: customer_orders
+  domain: sales
+  description: "Daily customer order transactions enriched with customer segments"
+  owner: sales-data-team@company.com
+  contact_channel: "#sales-data-support"
+
+schema_version: 1
+
+schema:
+  format: iceberg
+  columns:
+    - name: order_id
+      type: string
+      description: "Unique order identifier"
+      pii: false
+      nullable: false
+    - name: customer_email
+      type: string
+      description: "Customer email address"
+      pii: true
+      nullable: false
+    - name: order_total
+      type: decimal(10,2)
+      description: "Order total in USD"
+      pii: false
+      nullable: false
+    - name: order_date
+      type: date
+      description: "Date the order was placed"
+      pii: false
+      nullable: false
+    - name: customer_segment
+      type: string
+      description: "Customer segment (enriched in gold layer)"
+      pii: false
+      nullable: true
+  partition_by:
+    - column: order_date
+      transform: month
+
+quality:
+  rules:
+    - name: order_id_complete
+      rule: "IsComplete 'order_id'"
+      threshold: 1.0
+    - name: order_id_unique
+      rule: "IsUnique 'order_id'"
+    - name: order_total_positive
+      rule: "ColumnValues 'order_total' > 0"
+    - name: order_date_recent
+      rule: "Freshness 'order_date' <= 2 days"
+  minimum_quality_score: 95
+
+sla:
+  refresh_frequency: daily
+  freshness_target: "24 hours"
+  availability: "99.9%"
+
+tags:
+  - ecommerce
+  - customer-data
+  - pii
+
+classification: confidential
+
+lineage:
+  sources:
+    - system: "orders-postgres-db"
+      table: "public.orders"
+    - system: "crm-api"
+      endpoint: "/customers/segments"

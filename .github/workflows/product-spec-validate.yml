@@ -1,0 +1,132 @@
+name: Product Spec Validation
+
+on:
+  pull_request:
+    paths:
+      - "**/product.yaml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+        with:
+          python-version: "3.12"
+
+      - name: Install validation dependencies
+        run: pip install jsonschema pyyaml
+
+      - name: Find changed product.yaml files
+        id: changed
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | grep 'product.yaml' || true)
+          echo "files=$CHANGED" >> "$GITHUB_OUTPUT"
+          if [ -n "$CHANGED" ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate product specs against schema
+        if: steps.changed.outputs.has_changes == 'true'
+        run: |
+          SCHEMA="schemas/product_spec.json"
+          FAIL=0
+          for file in ${{ steps.changed.outputs.files }}; do
+            echo "Validating: $file"
+            if [ -f "$SCHEMA" ]; then
+              python -c "
+          import json, sys
+          import yaml
+          from jsonschema import validate, ValidationError
+          with open('$SCHEMA') as f:
+              schema = json.load(f)
+          with open('$file') as f:
+              spec = yaml.safe_load(f)
+          try:
+              validate(spec, schema)
+              print('  VALID')
+          except ValidationError as e:
+              print(f'  INVALID: {e.message}')
+              sys.exit(1)
+          " || FAIL=1
+            else
+              # Fallback: validate required top-level keys exist
+              python -c "
+          import yaml, sys
+          with open('$file') as f:
+              spec = yaml.safe_load(f)
+          required = ['product', 'schema', 'quality', 'sla']
+          missing = [k for k in required if k not in spec]
+          if missing:
+              print(f'  INVALID: missing required keys: {missing}')
+              sys.exit(1)
+          print('  VALID (inline schema)')
+          " || FAIL=1
+            fi
+          done
+          exit $FAIL
+
+      - name: Validate quality rule column references
+        if: steps.changed.outputs.has_changes == 'true'
+        run: |
+          FAIL=0
+          for file in ${{ steps.changed.outputs.files }}; do
+            echo "Checking quality rules in: $file"
+            python -c "
+          import yaml, re, sys
+          with open('$file') as f:
+              spec = yaml.safe_load(f)
+          columns = {c['name'] for c in spec.get('schema', {}).get('columns', [])}
+          for rule in spec.get('quality', {}).get('rules', []):
+              rule_text = rule.get('rule', '')
+              # Extract quoted column names from rules like IsComplete 'col' or ColumnValues 'col'
+              refs = re.findall(r\"'([^']+)'\", rule_text)
+              for ref in refs:
+                  if ref not in columns:
+                      print(f'  ERROR: Rule \"{rule[\"name\"]}\" references column \"{ref}\" which does not exist in schema')
+                      sys.exit(1)
+          print('  Quality rules OK')
+          " || FAIL=1
+          done
+          exit $FAIL
+
+      - name: Detect breaking changes
+        if: steps.changed.outputs.has_changes == 'true'
+        run: |
+          FAIL=0
+          for file in ${{ steps.changed.outputs.files }}; do
+            echo "Checking breaking changes in: $file"
+            OLD=$(git show "HEAD~1:$file" 2>/dev/null || echo "")
+            if [ -z "$OLD" ]; then
+              echo "  New file, no breaking changes to check."
+              continue
+            fi
+            # Write old version to temp file
+            echo "$OLD" > /tmp/old_spec.yaml
+            cp "$file" /tmp/new_spec.yaml
+
+            python -c "
+          import yaml, sys
+          sys.path.insert(0, 'cli')
+          from datameshy.lib.spec_parser import detect_breaking_changes
+          with open('/tmp/old_spec.yaml') as f:
+              old = yaml.safe_load(f)
+          with open('/tmp/new_spec.yaml') as f:
+              new = yaml.safe_load(f)
+          changes = detect_breaking_changes(old, new)
+          if changes:
+              for c in changes:
+                  print(f'  BREAKING: {c.message}')
+              sys.exit(1)
+          print('  No breaking changes detected.')
+          " || FAIL=1
+          done
+          exit $FAIL
