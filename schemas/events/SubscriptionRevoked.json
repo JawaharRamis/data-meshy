@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/data-meshy/schemas/events/SubscriptionRevoked.json",
+  "title": "SubscriptionRevoked",
+  "description": "Event emitted when an active subscription is revoked, either manually by an IAM principal or automatically by the system (e.g., policy violation, compensation after a failed provisioning step).",
+  "type": "object",
+  "required": ["subscription_id", "product_id", "consumer_account_id", "revoked_by", "revoked_at"],
+  "properties": {
+    "subscription_id": {
+      "description": "Unique identifier of the subscription being revoked (UUID format).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "product_id": {
+      "description": "Composite key identifying the data product: domain#product_name.",
+      "type": "string"
+    },
+    "consumer_account_id": {
+      "description": "AWS account ID of the consumer whose access is being revoked.",
+      "type": "string"
+    },
+    "revoked_by": {
+      "description": "IAM principal ARN that triggered the revocation, or 'system' for automatic compensation revokes.",
+      "type": "string"
+    },
+    "revoked_at": {
+      "description": "ISO 8601 timestamp when the revocation was processed.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "reason": {
+      "description": "Human-readable reason for revocation (e.g., 'Policy violation', 'Compensation: LF grant failed').",
+      "type": "string"
+    },
+    "compensation_reason": {
+      "description": "Machine-readable reason set by the saga compensator when auto-revoking after a failed provisioning step.",
+      "type": "string"
+    }
+  }
+}
