@@ -6,6 +6,13 @@ CHANGELOG.md
 # Plans (local only)
 plan/
 
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+
 # Python
 __pycache__/
 *.pyc
