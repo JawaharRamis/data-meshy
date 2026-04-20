@@ -6,6 +6,7 @@ detects breaking changes between two versions of a spec.
 
 from __future__ import annotations
 
+import importlib.resources
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -170,18 +171,14 @@ def _load_schema(schema_path: str | None = None) -> dict[str, Any]:
         with open(schema_path, encoding="utf-8") as fh:
             return json.load(fh)
 
-    # Try to locate schemas/product_spec.json relative to repo root
-    # (walks up from this file looking for schemas/)
-    current = Path(__file__).resolve()
-    for _ in range(10):
-        candidate = current / "schemas" / "product_spec.json"
-        if candidate.is_file():
-            import json
-            with open(candidate, encoding="utf-8") as fh:
-                return json.load(fh)
-        current = current.parent
-        if current == current.parent:
-            break
+    # Try to load the bundled schema via importlib.resources (works from installed package)
+    try:
+        import json
+        schema_ref = importlib.resources.files("datameshy").joinpath("schemas/product_spec.json")
+        schema_text = schema_ref.read_text(encoding="utf-8")
+        return json.loads(schema_text)
+    except (FileNotFoundError, TypeError, AttributeError):
+        pass
 
     return _INLINE_SCHEMA
 

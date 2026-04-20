@@ -1,0 +1,19 @@
+name: Product Validate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "products/**"
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    uses: JawaharRamis/data-meshy-platform/.github/workflows/reusable-product-validate.yml@v{{ platform_version }}
+    with:
+      domain: {{ domain }}
+    secrets: inherit
