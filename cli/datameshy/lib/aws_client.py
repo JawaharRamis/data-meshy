@@ -259,3 +259,100 @@ def wait_pipeline(
                 return current_status
 
             time.sleep(poll_interval)
+
+
+# ---------------------------------------------------------------------------
+# SigV4-signed HTTP requests (API Gateway)
+# ---------------------------------------------------------------------------
+
+class APIError(Exception):
+    """Raised when an API Gateway request returns a non-2xx status."""
+
+    def __init__(self, message: str, status_code: int = 0) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def make_signed_request(
+    session: boto3.Session,
+    method: str,
+    url: str,
+    body: dict[str, Any] | None = None,
+    params: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Make a SigV4-signed HTTP request to an API Gateway endpoint.
+
+    Resolves credentials from the given boto3 session and signs the request
+    using AWS Signature Version 4 via ``botocore``.
+
+    Args:
+        session: Authenticated boto3 session (provides credentials and region).
+        method: HTTP method (``"GET"``, ``"POST"``, etc.).
+        url: Full URL of the API Gateway endpoint.
+        body: Optional JSON body dict (serialised to bytes; only for POST/PUT).
+        params: Optional query-string parameters dict.
+
+    Returns:
+        Parsed JSON response body as a dict.
+
+    Raises:
+        APIError: If the HTTP response status code is not 2xx.
+        AuthError: If the session has no valid credentials to sign the request.
+    """
+    import json as _json
+    from urllib.parse import urlparse, urlencode, urlunparse
+
+    import requests
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+    from botocore.credentials import RefreshableCredentials
+    from botocore.exceptions import NoCredentialsError as BotocoreNoCreds
+
+    # Build URL with query parameters
+    if params:
+        parsed = urlparse(url)
+        query = urlencode({k: v for k, v in params.items() if v is not None})
+        url = urlunparse(parsed._replace(query=query))
+
+    body_bytes = _json.dumps(body).encode() if body else b""
+
+    # Build a botocore AWSRequest for signing
+    aws_request = AWSRequest(
+        method=method.upper(),
+        url=url,
+        data=body_bytes,
+        headers={"Content-Type": "application/json"} if body_bytes else {},
+    )
+
+    # Resolve credentials from the session
+    try:
+        credentials = session.get_credentials()
+        if credentials is None:
+            raise AuthError("No AWS credentials found in the current session.")
+        credentials = credentials.get_frozen_credentials()
+    except BotocoreNoCreds as exc:
+        raise AuthError("No AWS credentials found. Run `aws sso login`.") from exc
+
+    region = session.region_name or "us-east-1"
+    SigV4Auth(credentials, "execute-api", region).add_auth(aws_request)
+
+    # Translate botocore AWSRequest headers → requests library dict
+    prepared_headers = dict(aws_request.headers)
+
+    response = requests.request(
+        method=method.upper(),
+        url=url,
+        headers=prepared_headers,
+        data=body_bytes if body_bytes else None,
+        timeout=30,
+    )
+
+    if not response.ok:
+        raise APIError(
+            f"API request failed: {response.status_code} {response.text}",
+            status_code=response.status_code,
+        )
+
+    if response.content:
+        return response.json()
+    return {}
