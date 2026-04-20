@@ -1,0 +1,14 @@
+name: Terraform Apply
+on:
+  push:
+    branches: [main]
+    paths:
+      - infra/**
+jobs:
+  apply:
+    uses: JawaharRamis/data-meshy-platform/.github/workflows/reusable-infra-apply.yml@v1.0.0
+    with:
+      aws_region: us-east-1
+      tf_dir: infra/
+    secrets:
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}

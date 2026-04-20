@@ -1,0 +1,9 @@
+name: Validate Product Specs
+on: [pull_request, push]
+jobs:
+  validate:
+    uses: JawaharRamis/data-meshy-platform/.github/workflows/reusable-product-validate.yml@v1.0.0
+    with:
+      products_dir: products/
+    secrets:
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
