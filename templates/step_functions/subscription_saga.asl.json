@@ -1,106 +1,187 @@
 {
-  "Comment": "Subscription Provisioner Saga — placeholder ASL. Stream 2 owns the full implementation. This skeleton satisfies the Terraform templatefile reference and Step Functions structural validation.",
-  "StartAt": "ValidateSubscription",
+  "Comment": "Data Meshy — Subscription Provisioning Saga. Orchestrates LF grant → KMS grant → Resource link with compensation on failure.",
+  "TimeoutSeconds": 900,
+  "StartAt": "GrantLFPermissions",
   "States": {
-    "ValidateSubscription": {
-      "Type": "Task",
-      "Resource": "${provisioner_lambda_arn}",
-      "Parameters": {
-        "action": "VALIDATE",
-        "subscription.$": "$"
-      },
-      "Retry": [
-        {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
-          "IntervalSeconds": 2,
-          "MaxAttempts": 3,
-          "BackoffRate": 2
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": ["States.ALL"],
-          "ResultPath": "$.error",
-          "Next": "CompensateOnFailure"
-        }
-      ],
-      "Next": "GrantLFPermissions"
-    },
     "GrantLFPermissions": {
       "Type": "Task",
-      "Resource": "${provisioner_lambda_arn}",
+      "Comment": "Step A: Grant Lake Formation SELECT permissions on the gold table to the consumer account. Idempotent.",
+      "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "action": "GRANT_LF",
-        "subscription.$": "$",
-        "lf_grantor_role_arn": "${lf_grantor_role_arn}",
-        "kms_grantor_role_arn": "${kms_grantor_role_arn}"
+        "FunctionName.$": "$.lf_grant_function_arn",
+        "Payload": {
+          "subscription_id.$": "$.subscription_id",
+          "product_id.$": "$.product_id",
+          "consumer_account_id.$": "$.consumer_account_id",
+          "requested_columns.$": "$.requested_columns"
+        }
       },
+      "ResultSelector": {
+        "lf_grant.$": "$.Payload.lf_grant"
+      },
+      "ResultPath": "$.step_a_result",
       "Retry": [
         {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
-          "IntervalSeconds": 2,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "LakeFormation.ConcurrentModificationException"
+          ],
+          "IntervalSeconds": 5,
+          "BackoffRate": 2.0,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "CompensateOnFailure"
+          "Next": "CompensateGrant"
+        }
+      ],
+      "Next": "GrantKMSKey"
+    },
+    "GrantKMSKey": {
+      "Type": "Task",
+      "Comment": "Step B: Grant KMS Decrypt+DescribeKey to the consumer account's GlueConsumerRole for the producer's gold bucket key.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.kms_grant_function_arn",
+        "Payload": {
+          "subscription_id.$": "$.subscription_id",
+          "product_id.$": "$.product_id",
+          "consumer_account_id.$": "$.consumer_account_id",
+          "requested_columns.$": "$.requested_columns"
+        }
+      },
+      "ResultSelector": {
+        "kms_grant.$": "$.Payload.kms_grant",
+        "kms_grant_id.$": "$.Payload.kms_grant_id"
+      },
+      "ResultPath": "$.step_b_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 5,
+          "BackoffRate": 2.0,
+          "MaxAttempts": 3,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensateAll"
         }
       ],
       "Next": "CreateResourceLink"
     },
     "CreateResourceLink": {
       "Type": "Task",
-      "Resource": "${provisioner_lambda_arn}",
+      "Comment": "Step C: Create Glue resource link in the consumer catalog pointing to the producer gold table. Pre-checks existence to avoid duplicates.",
+      "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "action": "CREATE_RESOURCE_LINK",
-        "subscription.$": "$"
+        "FunctionName.$": "$.resource_link_function_arn",
+        "Payload": {
+          "subscription_id.$": "$.subscription_id",
+          "product_id.$": "$.product_id",
+          "consumer_account_id.$": "$.consumer_account_id",
+          "requested_columns.$": "$.requested_columns"
+        }
       },
+      "ResultSelector": {
+        "resource_link.$": "$.Payload.resource_link",
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.step_c_result",
       "Retry": [
         {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
-          "IntervalSeconds": 2,
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 5,
+          "BackoffRate": 2.0,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "JitterStrategy": "FULL"
         }
       ],
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "CompensateOnFailure"
+          "Next": "CompensateAll"
         }
       ],
-      "Next": "MarkActive"
-    },
-    "MarkActive": {
-      "Type": "Task",
-      "Resource": "${provisioner_lambda_arn}",
-      "Parameters": {
-        "action": "MARK_ACTIVE",
-        "subscription.$": "$"
-      },
       "Next": "SubscriptionComplete"
     },
-    "SubscriptionComplete": {
-      "Type": "Succeed"
-    },
-    "CompensateOnFailure": {
+    "CompensateGrant": {
       "Type": "Task",
-      "Resource": "${compensator_lambda_arn}",
+      "Comment": "Compensate Step A failure: revoke LF grant only. Called when LF grant itself fails after retries.",
+      "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
-        "subscription.$": "$",
-        "error.$": "$.error"
+        "FunctionName.$": "$.compensator_function_arn",
+        "Payload": {
+          "subscription_id.$": "$.subscription_id",
+          "product_id.$": "$.product_id",
+          "consumer_account_id.$": "$.consumer_account_id",
+          "compensation_steps": ["lf_grant"],
+          "reason": "lf_grant_failed"
+        }
       },
+      "ResultPath": "$.compensate_result",
       "Retry": [
         {
-          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
           "IntervalSeconds": 5,
-          "MaxAttempts": 3,
-          "BackoffRate": 2
+          "BackoffRate": 2.0,
+          "MaxAttempts": 2
+        }
+      ],
+      "Next": "SubscriptionFailed"
+    },
+    "CompensateAll": {
+      "Type": "Task",
+      "Comment": "Compensate Steps B or C failure: revoke resource link (if created), KMS grant, and LF grant. Full rollback.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName.$": "$.compensator_function_arn",
+        "Payload": {
+          "subscription_id.$": "$.subscription_id",
+          "product_id.$": "$.product_id",
+          "consumer_account_id.$": "$.consumer_account_id",
+          "compensation_steps": ["resource_link", "kms_grant", "lf_grant"],
+          "reason": "provisioning_failure"
+        }
+      },
+      "ResultPath": "$.compensate_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 5,
+          "BackoffRate": 2.0,
+          "MaxAttempts": 2
         }
       ],
       "Next": "SubscriptionFailed"
@@ -108,7 +189,11 @@
     "SubscriptionFailed": {
       "Type": "Fail",
       "Error": "SubscriptionProvisioningFailed",
-      "Cause": "Subscription provisioning failed. Compensation executed. Check DynamoDB for compensation_reason."
+      "Cause": "Subscription provisioning failed. Compensation has been executed. See DynamoDB for compensation_reason."
+    },
+    "SubscriptionComplete": {
+      "Type": "Succeed",
+      "Comment": "All three provisioning steps completed successfully. Subscription is ACTIVE."
     }
   }
 }
