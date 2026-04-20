@@ -33,6 +33,52 @@ variable "alert_email" {
   default     = ""
 }
 
+# ── DataZone variables (Phase 2) ─────────────────────────────────────────────
+
+variable "datazone_domain_name" {
+  description = "Name of the AWS DataZone domain for the mesh catalog."
+  type        = string
+  default     = "data-meshy"
+}
+
+variable "datazone_domain_description" {
+  description = "Description of the AWS DataZone domain."
+  type        = string
+  default     = "Data Meshy — self-serve data mesh platform. Domain teams publish data products; consumers discover and subscribe via DataZone."
+}
+
+variable "datazone_sso_type" {
+  description = "Single sign-on type for DataZone (IAM_IDC for IAM Identity Center, DISABLED to skip SSO)."
+  type        = string
+  default     = "DISABLED"
+}
+
+# ── Subscription API variables (Phase 2) ─────────────────────────────────────
+
+variable "subscription_provisioner_lambda_arn" {
+  description = "ARN of the subscription provisioner Lambda (Stream 2). Empty string until Stream 2 merges."
+  type        = string
+  default     = ""
+}
+
+variable "subscription_compensator_lambda_arn" {
+  description = "ARN of the subscription compensator Lambda (Stream 2). Empty string until Stream 2 merges."
+  type        = string
+  default     = ""
+}
+
+variable "subscription_approver_lambda_arn" {
+  description = "ARN of the subscription approver Lambda (Stream 2). Empty string until Stream 2 merges."
+  type        = string
+  default     = ""
+}
+
+variable "subscription_lister_lambda_arn" {
+  description = "ARN of the subscription lister Lambda (Stream 2). Empty string until Stream 2 merges."
+  type        = string
+  default     = ""
+}
+
 locals {
   mandatory_tags = {
     Project     = "data-meshy"

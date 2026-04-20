@@ -1,0 +1,114 @@
+{
+  "Comment": "Subscription Provisioner Saga — placeholder ASL. Stream 2 owns the full implementation. This skeleton satisfies the Terraform templatefile reference and Step Functions structural validation.",
+  "StartAt": "ValidateSubscription",
+  "States": {
+    "ValidateSubscription": {
+      "Type": "Task",
+      "Resource": "${provisioner_lambda_arn}",
+      "Parameters": {
+        "action": "VALIDATE",
+        "subscription.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensateOnFailure"
+        }
+      ],
+      "Next": "GrantLFPermissions"
+    },
+    "GrantLFPermissions": {
+      "Type": "Task",
+      "Resource": "${provisioner_lambda_arn}",
+      "Parameters": {
+        "action": "GRANT_LF",
+        "subscription.$": "$",
+        "lf_grantor_role_arn": "${lf_grantor_role_arn}",
+        "kms_grantor_role_arn": "${kms_grantor_role_arn}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensateOnFailure"
+        }
+      ],
+      "Next": "CreateResourceLink"
+    },
+    "CreateResourceLink": {
+      "Type": "Task",
+      "Resource": "${provisioner_lambda_arn}",
+      "Parameters": {
+        "action": "CREATE_RESOURCE_LINK",
+        "subscription.$": "$"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "CompensateOnFailure"
+        }
+      ],
+      "Next": "MarkActive"
+    },
+    "MarkActive": {
+      "Type": "Task",
+      "Resource": "${provisioner_lambda_arn}",
+      "Parameters": {
+        "action": "MARK_ACTIVE",
+        "subscription.$": "$"
+      },
+      "Next": "SubscriptionComplete"
+    },
+    "SubscriptionComplete": {
+      "Type": "Succeed"
+    },
+    "CompensateOnFailure": {
+      "Type": "Task",
+      "Resource": "${compensator_lambda_arn}",
+      "Parameters": {
+        "subscription.$": "$",
+        "error.$": "$.error"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "SubscriptionFailed"
+    },
+    "SubscriptionFailed": {
+      "Type": "Fail",
+      "Error": "SubscriptionProvisioningFailed",
+      "Cause": "Subscription provisioning failed. Compensation executed. Check DynamoDB for compensation_reason."
+    }
+  }
+}
