@@ -47,6 +47,20 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "platform_modules"
   }
 }
 
+# Expire noncurrent module zip versions after 90 days to bound storage cost.
+resource "aws_s3_bucket_lifecycle_configuration" "platform_modules" {
+  bucket = aws_s3_bucket.platform_modules.id
+
+  rule {
+    id     = "expire-old-module-versions"
+    status = "Enabled"
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+  }
+}
+
 output "platform_modules_bucket_name" {
   description = "S3 bucket name for versioned platform module zip archives."
   value       = aws_s3_bucket.platform_modules.bucket

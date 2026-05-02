@@ -10,6 +10,11 @@ on:
       - ".github/workflows/infra-apply.yml"
       - ".github/workflows/reusable-infra-plan.yml"
 
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
 jobs:
   plan-central:
     name: Plan — central

@@ -10,6 +10,10 @@ on:
       - ".github/workflows/infra-apply.yml"
       - ".github/workflows/reusable-infra-apply.yml"
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   apply-central:
     name: Apply — central

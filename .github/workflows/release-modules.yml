@@ -77,11 +77,13 @@ jobs:
 
       - name: Create GitHub Release
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        env:
+          ASSET_LINKS: ${{ steps.package.outputs.asset_links }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const tag = context.ref.replace('refs/tags/', '');
-            const assetLinks = `${{ steps.package.outputs.asset_links }}`;
+            const assetLinks = process.env.ASSET_LINKS;
 
             await github.rest.repos.createRelease({
               owner: context.repo.owner,
