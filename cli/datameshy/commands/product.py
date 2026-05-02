@@ -61,7 +61,7 @@ def product_create(
 
     \b
       datameshy product create \\
-        --spec examples/sales-domain/products/customer_orders/product.yaml
+        --spec examples/example-domain-repo/products/customer_orders/product.yaml
     """
     from datameshy.lib.spec_parser import SpecValidationError, parse_and_validate
 

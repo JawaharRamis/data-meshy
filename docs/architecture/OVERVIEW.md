@@ -103,7 +103,7 @@ Each domain account is provisioned from the same Terraform module (`infra/module
 | OIDC federation | `infra/environments/central/` | `oidc.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
 | SSO / Identity Center | `infra/environments/central/` | `identity_center.tf` | [SECURITY.md](SECURITY.md) |
 | CLI | `cli/datameshy/` | `cli.py`, `commands/`, `lib/` | -- |
-| Environment configs | `infra/environments/` | `central/`, `domain-sales/` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
+| Environment configs | `infra/environments/` | `central/` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
 | Subscription module | `infra/modules/subscription/` | -- | [SECURITY.md](SECURITY.md) |
 | Monitoring | `infra/modules/monitoring/` | -- | -- |
 

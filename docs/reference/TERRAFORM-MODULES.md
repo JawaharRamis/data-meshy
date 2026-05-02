@@ -207,9 +207,9 @@ This module has no outputs. It creates CloudWatch alarms and AWS Budgets that se
 
 ---
 
-## Module Wiring: domain-sales Example
+## Module Wiring: example-domain-repo
 
-The `infra/environments/domain-sales/main.tf` shows how the modules connect:
+The `examples/example-domain-repo/infra/main.tf` shows how the modules connect:
 
 ```
 governance (central account)
@@ -239,4 +239,4 @@ Key wiring pattern -- `domain-account` outputs feed into `data-product` inputs:
 
 - [Resource Naming Reference](RESOURCE-NAMING.md) -- naming conventions produced by these modules
 - [Add a Domain Guide](../guides/ADD-DOMAIN.md) -- step-by-step domain onboarding using these modules
-- [Terraform Environments](../../infra/environments/domain-sales/) -- example environment wiring
+- [Example Domain Repo](../../examples/example-domain-repo/) -- reference implementation showing module wiring

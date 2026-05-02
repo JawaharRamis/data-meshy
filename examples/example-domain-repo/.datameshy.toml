@@ -1,0 +1,9 @@
+[platform]
+version = "1.0.0"
+repo = "JawaharRamis/data-meshy-platform"
+
+[domain]
+name = "sales"
+account_id = "REPLACE_ME"
+aws_region = "us-east-1"
+owner = "REPLACE_ME@company.com"
