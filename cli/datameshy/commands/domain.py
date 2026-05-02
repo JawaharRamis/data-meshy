@@ -61,16 +61,19 @@ def domain_onboard(
     ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Run plan only; do not apply.")] = False,
 ) -> None:
-    """Onboard a new domain into the data mesh.
+    """Register a new domain with the central mesh governance (platform-team command).
 
     This command will:
 
     \b
     1. Validate domain name and inputs
-    2. Scaffold a Terraform environment directory at infra/environments/domain-{name}/
+    2. Scaffold a Terraform environment directory in the platform repo
     3. Run terraform plan and show a summary
     4. Prompt for confirmation before applying
     5. Emit a DomainOnboarded event to the central event bus
+
+    Domain teams should use `datameshy domain init` to scaffold their own
+    isolated domain repo after the platform team has run this command.
 
     Example:
 
