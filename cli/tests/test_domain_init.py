@@ -177,6 +177,21 @@ class TestDomainInit:
         )
         assert result.exit_code != 0
 
+    def test_invalid_platform_version_raises(self, tmp_path):
+        """A non-semver platform version should fail."""
+        result = runner.invoke(
+            app,
+            [
+                "init",
+                "--name", "valid-name",
+                "--account-id", "123456789012",
+                "--owner", "owner@example.com",
+                "--platform-version", "not-semver",
+                "--output-dir", str(tmp_path),
+            ],
+        )
+        assert result.exit_code != 0
+
 
 # ---------------------------------------------------------------------------
 # domain upgrade
@@ -244,7 +259,8 @@ class TestDomainUpgrade:
     def test_updates_main_tf_ref(self, tmp_path):
         """After upgrade, infra/main.tf should have the new ?ref= value."""
         repo = _make_domain_repo(tmp_path, version="1.0.0")
-        runner.invoke(app, ["upgrade", "--to", "1.1.0", "--dir", str(repo)])
+        result = runner.invoke(app, ["upgrade", "--to", "1.1.0", "--dir", str(repo)])
+        assert result.exit_code == 0, result.output
         main_tf = (repo / "infra" / "main.tf").read_text(encoding="utf-8")
         assert "?ref=v1.1.0" in main_tf
         assert "?ref=v1.0.0" not in main_tf
@@ -252,7 +268,8 @@ class TestDomainUpgrade:
     def test_updates_workflow_versions(self, tmp_path):
         """After upgrade, all workflow files should reference the new version."""
         repo = _make_domain_repo(tmp_path, version="1.0.0")
-        runner.invoke(app, ["upgrade", "--to", "1.1.0", "--dir", str(repo)])
+        result = runner.invoke(app, ["upgrade", "--to", "1.1.0", "--dir", str(repo)])
+        assert result.exit_code == 0, result.output
         for wf_name in ["infra-plan.yml", "infra-apply.yml", "product-validate.yml"]:
             content = (repo / ".github" / "workflows" / wf_name).read_text(encoding="utf-8")
             assert "@v1.1.0" in content, f"{wf_name} not updated"
@@ -284,6 +301,16 @@ class TestDomainUpgrade:
         result = runner.invoke(app, ["upgrade", "--to", "1.1.0", "--dir", str(repo)])
         assert result.exit_code == 1
         assert "datameshy" in result.output.lower() or ".datameshy.toml" in result.output
+
+    def test_invalid_to_version_raises(self, tmp_path):
+        """A non-semver --to version should fail before touching files."""
+        repo = _make_domain_repo(tmp_path, version="1.0.0")
+        result = runner.invoke(app, ["upgrade", "--to", "not-a-version", "--dir", str(repo)])
+        assert result.exit_code != 0
+        # File should be untouched
+        import tomllib
+        config = tomllib.loads((repo / ".datameshy.toml").read_text(encoding="utf-8"))
+        assert config["platform"]["version"] == "1.0.0"
 
 
 # ---------------------------------------------------------------------------

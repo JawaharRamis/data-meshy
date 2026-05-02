@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
+from jinja2 import BaseLoader, Environment
 from rich.console import Console
 from rich.table import Table
 
@@ -227,8 +228,8 @@ def domain_init(
         raise typer.BadParameter(f"account-id must be a 12-digit AWS account ID (got: {account_id}).")
     if "@" not in owner:
         raise typer.BadParameter(f"owner must be a valid email address (got: {owner}).")
-
-    from jinja2 import Environment, BaseLoader
+    if not re.match(r"^\d+\.\d+\.\d+$", platform_version):
+        raise typer.BadParameter(f"platform-version must be semver X.Y.Z (got: {platform_version}).")
 
     dest_root = (output_dir or Path.cwd()) / f"data-meshy-{name}"
 
@@ -242,6 +243,7 @@ def domain_init(
     # Load and render all templates from the bundled domain_repo directory
     templates_pkg = importlib.resources.files("datameshy").joinpath("templates/domain_repo")
     created_files: list[str] = []
+    jinja_env = Environment(loader=BaseLoader(), keep_trailing_newline=True)
 
     def _render_dir(pkg_dir, dest_dir: Path) -> None:
         """Recursively render a package resource directory into dest_dir."""
@@ -250,16 +252,13 @@ def domain_init(
             if entry.is_dir():
                 _render_dir(entry, dest_dir / entry_name)
             else:
-                # It's a file — render if .j2, otherwise copy
                 dest_name = entry_name[:-3] if entry_name.endswith(".j2") else entry_name
                 dest_file = dest_dir / dest_name
                 dest_file.parent.mkdir(parents=True, exist_ok=True)
 
                 raw = entry.read_text(encoding="utf-8")
                 if entry_name.endswith(".j2"):
-                    env = Environment(loader=BaseLoader(), keep_trailing_newline=True)
-                    template = env.from_string(raw)
-                    content = template.render(**template_vars)
+                    content = jinja_env.from_string(raw).render(**template_vars)
                 else:
                     content = raw
                 dest_file.write_text(content, encoding="utf-8")
@@ -303,6 +302,9 @@ def domain_upgrade(
       datameshy domain upgrade --to 1.1.0 --dir ./data-meshy-sales
     """
     import tomllib
+
+    if not re.match(r"^\d+\.\d+\.\d+$", to):
+        raise typer.BadParameter(f"--to must be semver X.Y.Z (got: {to}).")
 
     repo_root = (dir or Path.cwd()).resolve()
     toml_path = repo_root / ".datameshy.toml"

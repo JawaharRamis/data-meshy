@@ -36,9 +36,6 @@ datameshy = "datameshy.cli:app"
 packages = ["datameshy"]
 artifacts = ["datameshy/schemas/*.json", "datameshy/templates/**/*"]
 
-[tool.setuptools.package-data]
-"datameshy" = ["schemas/*.json", "templates/domain_repo/**/*"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=datameshy --cov-report=term-missing --cov-fail-under=80"
