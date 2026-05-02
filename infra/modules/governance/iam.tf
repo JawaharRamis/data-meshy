@@ -11,6 +11,21 @@ data "aws_region" "current" {}
 locals {
   account_id = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.name
+
+  # OIDC sub conditions — platform repo plus any domain repos.
+  # StringLike with a list is evaluated as OR by AWS IAM.
+  oidc_plan_subjects = concat(
+    ["repo:${var.github_org}/${var.github_repo}:*"],
+    var.domain_repo_paths
+  )
+
+  # Apply role: main-branch only for both platform and domain repos.
+  # domain_repo_paths entries use :* for the plan role (any branch can plan);
+  # here we rewrite them to :ref:refs/heads/main so only merged code can apply.
+  oidc_apply_subjects = concat(
+    ["repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"],
+    [for path in var.domain_repo_paths : replace(path, ":*", ":ref:refs/heads/main")]
+  )
 }
 
 ###############################################################################
@@ -512,7 +527,7 @@ resource "aws_iam_role" "terraform_plan" {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           }
           StringLike = {
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:*"
+            "token.actions.githubusercontent.com:sub" = local.oidc_plan_subjects
           }
         }
       }
@@ -580,8 +595,11 @@ resource "aws_iam_role" "terraform_apply" {
         Condition = {
           StringEquals = {
             "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-            # Only main branch can apply
-            "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"
+          }
+          # StringLike with a list: platform repo restricted to main branch;
+          # domain repos use wildcard (domains apply their own infra, not central).
+          StringLike = {
+            "token.actions.githubusercontent.com:sub" = local.oidc_apply_subjects
           }
         }
       }

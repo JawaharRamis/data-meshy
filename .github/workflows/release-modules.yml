@@ -1,0 +1,110 @@
+name: Release Platform Modules
+
+# Triggered on version tags (e.g. v1.0.0).
+# Zips each TF module, uploads to the platform module registry S3 bucket,
+# and creates a GitHub release with asset links.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write    # OIDC token for AWS
+  contents: write    # GitHub release creation
+
+jobs:
+  release:
+    name: Package and release TF modules
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/TerraformApplyRole
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: ReleaseModules-${{ github.run_id }}
+
+      - name: Resolve platform modules bucket name
+        id: bucket
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "name=data-meshy-platform-modules-${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Package modules
+        id: package
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          MODULES=(domain-account data-product governance monitoring shared)
+          ASSET_LINKS=""
+          BUCKET="${{ steps.bucket.outputs.name }}"
+
+          mkdir -p /tmp/module-zips
+
+          for module in "${MODULES[@]}"; do
+            MODULE_DIR="infra/modules/${module}"
+            if [ ! -d "$MODULE_DIR" ]; then
+              echo "Skipping ${module} — directory not found"
+              continue
+            fi
+
+            ZIP_NAME="${module}-${TAG}.zip"
+            ZIP_PATH="/tmp/module-zips/${ZIP_NAME}"
+
+            echo "Packaging ${module} → ${ZIP_NAME}"
+            zip -r "$ZIP_PATH" "$MODULE_DIR"
+
+            echo "Uploading s3://${BUCKET}/${module}/${TAG}.zip"
+            aws s3 cp "$ZIP_PATH" "s3://${BUCKET}/${module}/${TAG}.zip"
+
+            S3_URL="s3://${BUCKET}/${module}/${TAG}.zip"
+            ASSET_LINKS="${ASSET_LINKS}\n- \`${module}\`: \`${S3_URL}\`"
+          done
+
+          # Write asset links to output for release notes
+          {
+            echo 'asset_links<<NOTES_EOF'
+            echo -e "$ASSET_LINKS"
+            echo 'NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        env:
+          ASSET_LINKS: ${{ steps.package.outputs.asset_links }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            const assetLinks = process.env.ASSET_LINKS;
+
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Platform Release ${tag}`,
+              body: [
+                `## Platform Release ${tag}`,
+                '',
+                'Versioned Terraform module archives are available in the platform S3 registry.',
+                '',
+                '### Module S3 Paths',
+                assetLinks,
+                '',
+                '### Using a module in your domain repo',
+                '```hcl',
+                `source = "git::https://github.com/${context.repo.owner}/${context.repo.repo}.git//infra/modules/domain-account?ref=${tag}"`,
+                '```',
+                '',
+                '_Or use the S3 path above with an `s3::` source after configuring backend credentials._',
+              ].join('\n'),
+              draft: false,
+              prerelease: tag.includes('-'),
+            });

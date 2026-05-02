@@ -69,6 +69,14 @@ variable "alert_email" {
   default     = ""
 }
 
+# ── Pre-Phase 3: Multi-repo OIDC ──────────────────────────────────────────────
+
+variable "domain_repo_paths" {
+  description = "OIDC sub conditions for domain GitHub repos (e.g. 'repo:org/data-meshy-sales:*'). Append-only — adding a domain never removes existing access."
+  type        = list(string)
+  default     = []
+}
+
 # ── Phase 2: Subscription Lambda ARN placeholders ────────────────────────────
 # Set to "" until Stream 2 merges. After merge, populate with actual ARNs.
 
@@ -122,6 +130,9 @@ module "governance" {
   github_org         = var.github_org
   github_repo        = var.github_repo
   alert_email        = var.alert_email
+
+  # Pre-Phase 3: domain repo OIDC paths
+  domain_repo_paths = var.domain_repo_paths
 
   # Phase 2: DataZone
   datazone_domain_name = var.datazone_domain_name

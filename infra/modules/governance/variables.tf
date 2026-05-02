@@ -33,6 +33,14 @@ variable "alert_email" {
   default     = ""
 }
 
+# ── Multi-repo OIDC variables (Pre-Phase 3) ───────────────────────────────────
+
+variable "domain_repo_paths" {
+  description = "OIDC sub conditions for domain GitHub repos (e.g. 'repo:org/data-meshy-sales:*')."
+  type        = list(string)
+  default     = []
+}
+
 # ── DataZone variables (Phase 2) ─────────────────────────────────────────────
 
 variable "datazone_domain_name" {

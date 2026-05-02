@@ -17,3 +17,8 @@ github_repo = "data-meshy"
 # Optional: set to receive SNS email alerts
 # alert_email = "platform-team@example.com"
 alert_email = ""
+
+# Pre-Phase 3: domain repo OIDC paths.
+# Add domain repos as they are onboarded, e.g.:
+# domain_repo_paths = ["repo:JawaharRamis/data-meshy-sales:*"]
+domain_repo_paths = []

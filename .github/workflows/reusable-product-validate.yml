@@ -1,0 +1,48 @@
+name: Reusable — Product Spec Validate
+
+on:
+  workflow_call:
+    inputs:
+      products_dir:
+        description: "Directory containing product subdirectories with product.yaml files."
+        type: string
+        default: "products/"
+
+jobs:
+  validate:
+    name: Validate Product Specs (${{ inputs.products_dir }})
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
+        with:
+          python-version: "3.12"
+
+      - name: Install datameshy CLI
+        run: pip install datameshy
+
+      - name: Find and validate all product.yaml files
+        run: |
+          FAIL=0
+          SPECS=$(find "${{ inputs.products_dir }}" -name "product.yaml" 2>/dev/null || true)
+
+          if [ -z "$SPECS" ]; then
+            echo "No product.yaml files found in ${{ inputs.products_dir }} — nothing to validate."
+            exit 0
+          fi
+
+          for spec in $SPECS; do
+            echo "Validating: $spec"
+            if datameshy product validate --spec "$spec"; then
+              echo "  VALID: $spec"
+            else
+              echo "  INVALID: $spec"
+              FAIL=1
+            fi
+          done
+
+          exit $FAIL

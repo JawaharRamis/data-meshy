@@ -5,18 +5,30 @@ on:
     paths:
       - "**/product.yaml"
 
+# Primary validation via reusable workflow (calls `datameshy product validate`).
+# Additional platform-specific checks (quality rule column refs, breaking change
+# detection via spec_parser) run in the second job — these are internal to the
+# platform repo and intentionally NOT extracted to the reusable workflow.
+
 jobs:
-  validate:
+  validate-specs:
+    name: Validate via datameshy CLI
+    uses: ./.github/workflows/reusable-product-validate.yml
+    with:
+      products_dir: "examples/"
+
+  validate-platform-checks:
+    name: Platform-specific spec checks
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           fetch-depth: 2
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5.5.0
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55  # v5.5.0
         with:
           python-version: "3.12"
 
