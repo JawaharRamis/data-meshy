@@ -1,0 +1,76 @@
+name: Reusable — Terraform Apply
+
+# Only callable from main branch (enforced via branch protection on callers).
+# The TerraformApplyRole OIDC condition additionally restricts to main-branch tokens.
+
+on:
+  workflow_call:
+    inputs:
+      aws_region:
+        description: "AWS region to target."
+        type: string
+        default: "us-east-1"
+      tf_dir:
+        description: "Terraform working directory (relative to repo root)."
+        type: string
+        default: "infra/"
+    secrets:
+      AWS_ACCOUNT_ID:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  apply:
+    name: Terraform Apply (${{ inputs.tf_dir }})
+    runs-on: ubuntu-latest
+    environment: terraform-apply  # Manual approval gate in GitHub Environments
+
+    defaults:
+      run:
+        working-directory: ${{ inputs.tf_dir }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/TerraformApplyRole
+          aws-region: ${{ inputs.aws_region }}
+          role-session-name: TerraformApply-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
+        with:
+          terraform_version: "1.7.5"
+          terraform_wrapper: true
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -input=false
+        env:
+          TF_INPUT: "false"
+
+      - name: Terraform Plan (for review)
+        id: plan
+        run: terraform plan -no-color -input=false -out=tfplan.bin
+        env:
+          TF_INPUT: "false"
+
+      - name: Terraform Apply
+        id: apply
+        run: terraform apply -auto-approve -input=false tfplan.bin
+        env:
+          TF_INPUT: "false"
+
+      - name: Upload plan artifact (for audit trail)
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
+        if: always()
+        with:
+          name: tfplan-apply-${{ github.run_id }}
+          path: ${{ inputs.tf_dir }}/tfplan.bin
+          retention-days: 30
