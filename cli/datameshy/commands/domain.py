@@ -1,7 +1,9 @@
 """CLI commands for domain management.
 
 Commands:
-  datameshy domain onboard  — provision a new domain into the mesh
+  datameshy domain onboard  — provision a new domain into the mesh (platform-team command)
+  datameshy domain init     — scaffold a new isolated domain repo (domain-team command)
+  datameshy domain upgrade  — upgrade an existing domain repo to a new platform version
   datameshy domain list     — list all onboarded domains
   datameshy domain status   — show domain details and product count
 """
@@ -17,7 +19,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-app = typer.Typer(help="Manage mesh domains (onboard, list, status).")
+app = typer.Typer(help="Manage mesh domains (onboard, init, upgrade, list, status).")
 console = Console()
 
 _DOMAIN_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-]{0,30}[a-zA-Z0-9]$|^[a-zA-Z0-9]$")
