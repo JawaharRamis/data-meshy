@@ -46,7 +46,7 @@ Each job receives parameters from the Step Functions state machine input.
 
 ### 1. Understand the Template Structure
 
-The template files are located at `templates/glue_jobs/`. The customer_orders example shows customized versions at `examples/sales-domain/products/customer_orders/`.
+The template files are located at `templates/glue_jobs/`. The customer_orders example shows customized versions at `examples/example-domain-repo/products/customer_orders/`.
 
 Each template has clearly marked customization sections:
 
@@ -59,11 +59,11 @@ Each template has clearly marked customization sections:
 Copy templates to your product directory before modifying:
 
 ```bash
-mkdir -p examples/sales-domain/products/my_product/
+mkdir -p examples/example-domain-repo/products/my_product/
 
-cp templates/glue_jobs/raw_ingestion.py   examples/sales-domain/products/my_product/
-cp templates/glue_jobs/silver_transform.py examples/sales-domain/products/my_product/
-cp templates/glue_jobs/gold_aggregate.py  examples/sales-domain/products/my_product/
+cp templates/glue_jobs/raw_ingestion.py   examples/example-domain-repo/products/my_product/
+cp templates/glue_jobs/silver_transform.py examples/example-domain-repo/products/my_product/
+cp templates/glue_jobs/gold_aggregate.py  examples/example-domain-repo/products/my_product/
 ```
 
 ---
@@ -356,15 +356,15 @@ After customizing, upload the updated scripts to S3:
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --profile sales-engineer --query Account --output text)
 
-aws s3 cp examples/sales-domain/products/my_product/raw_ingestion.py \
+aws s3 cp examples/example-domain-repo/products/my_product/raw_ingestion.py \
   s3://sales-raw-${ACCOUNT_ID}/pipeline-code/my_product/raw_ingestion.py \
   --profile sales-engineer
 
-aws s3 cp examples/sales-domain/products/my_product/silver_transform.py \
+aws s3 cp examples/example-domain-repo/products/my_product/silver_transform.py \
   s3://sales-raw-${ACCOUNT_ID}/pipeline-code/my_product/silver_transform.py \
   --profile sales-engineer
 
-aws s3 cp examples/sales-domain/products/my_product/gold_aggregate.py \
+aws s3 cp examples/example-domain-repo/products/my_product/gold_aggregate.py \
   s3://sales-raw-${ACCOUNT_ID}/pipeline-code/my_product/gold_aggregate.py \
   --profile sales-engineer
 ```
@@ -426,4 +426,4 @@ The structured JSON logs from each job include `domain`, `product_name`, `layer`
 - [Product Spec Reference](../reference/PRODUCT-SPEC.md) -- quality rules and schema fields
 - [Resource Naming Reference](../reference/RESOURCE-NAMING.md) -- S3 bucket and Glue database names
 - Template files: `templates/glue_jobs/*.py`
-- Example files: `examples/sales-domain/products/customer_orders/*.py`
+- Example files: `examples/example-domain-repo/products/customer_orders/glue_jobs/`

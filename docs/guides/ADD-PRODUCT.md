@@ -32,7 +32,7 @@ Start from the template:
 
 ```bash
 cp templates/product_spec/product.yaml.template \
-   examples/sales-domain/products/my_new_product/product.yaml
+   examples/example-domain-repo/products/my_new_product/product.yaml
 ```
 
 Edit the file with your product's details. Every field is documented in the [Product Spec Reference](../reference/PRODUCT-SPEC.md). The minimum required structure:
@@ -84,7 +84,7 @@ Validate against the JSON Schema before provisioning:
 
 ```bash
 datameshy --profile sales-engineer product create \
-  --spec examples/sales-domain/products/my_new_product/product.yaml \
+  --spec examples/example-domain-repo/products/my_new_product/product.yaml \
   --dry-run
 ```
 
@@ -104,7 +104,7 @@ Once the spec is valid, provision the product:
 
 ```bash
 datameshy --profile sales-engineer product create \
-  --spec examples/sales-domain/products/my_new_product/product.yaml \
+  --spec examples/example-domain-repo/products/my_new_product/product.yaml \
   --event-bus-arn "arn:aws:events:us-east-1:CENTRAL_ACCOUNT_ID:event-bus/mesh-central-bus"
 ```
 
@@ -141,11 +141,11 @@ The secret ARN should match what is specified in `product.yaml` under `lineage.s
 The template Glue jobs are copied to S3 but need customization for your specific data source and transforms. Copy the templates to your product directory and modify them:
 
 ```bash
-mkdir -p examples/sales-domain/products/my_new_product/
+mkdir -p examples/example-domain-repo/products/my_new_product/
 
-cp templates/glue_jobs/raw_ingestion.py examples/sales-domain/products/my_new_product/
-cp templates/glue_jobs/silver_transform.py examples/sales-domain/products/my_new_product/
-cp templates/glue_jobs/gold_aggregate.py examples/sales-domain/products/my_new_product/
+cp templates/glue_jobs/raw_ingestion.py examples/example-domain-repo/products/my_new_product/
+cp templates/glue_jobs/silver_transform.py examples/example-domain-repo/products/my_new_product/
+cp templates/glue_jobs/gold_aggregate.py examples/example-domain-repo/products/my_new_product/
 ```
 
 See the [Customize Pipeline Guide](CUSTOMIZE-PIPELINE.md) for detailed instructions on modifying each job.
@@ -153,15 +153,15 @@ See the [Customize Pipeline Guide](CUSTOMIZE-PIPELINE.md) for detailed instructi
 After customizing, upload the updated scripts:
 
 ```bash
-aws s3 cp examples/sales-domain/products/my_new_product/raw_ingestion.py \
+aws s3 cp examples/example-domain-repo/products/my_new_product/raw_ingestion.py \
   s3://sales-raw-ACCOUNT_ID/pipeline-code/my_new_product/raw_ingestion.py \
   --profile sales-engineer
 
-aws s3 cp examples/sales-domain/products/my_new_product/silver_transform.py \
+aws s3 cp examples/example-domain-repo/products/my_new_product/silver_transform.py \
   s3://sales-raw-ACCOUNT_ID/pipeline-code/my_new_product/silver_transform.py \
   --profile sales-engineer
 
-aws s3 cp examples/sales-domain/products/my_new_product/gold_aggregate.py \
+aws s3 cp examples/example-domain-repo/products/my_new_product/gold_aggregate.py \
   s3://sales-raw-ACCOUNT_ID/pipeline-code/my_new_product/gold_aggregate.py \
   --profile sales-engineer
 ```
@@ -233,4 +233,4 @@ SELECT * FROM sales_gold.my_new_product LIMIT 10;
 - [Event Schemas Reference](../reference/EVENT-SCHEMAS.md) -- events emitted during product lifecycle
 - [Quick Start Guide](QUICK-START.md) -- end-to-end walkthrough
 - Product template: `templates/product_spec/product.yaml.template`
-- Example product: `examples/sales-domain/products/customer_orders/`
+- Example product: `examples/example-domain-repo/products/customer_orders/`

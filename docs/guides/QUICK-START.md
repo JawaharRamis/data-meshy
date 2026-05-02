@@ -101,29 +101,28 @@ datameshy --profile sales-engineer domain onboard \
 
 The CLI will:
 1. Validate inputs
-2. Scaffold `infra/environments/domain-sales/` with `terraform.tfvars` and `main.tf`
+2. Scaffold your domain repo using `datameshy domain init` (see [example-domain-repo](../../examples/example-domain-repo/))
 3. Run `terraform plan`
 4. Prompt for confirmation
 5. Run `terraform apply`
 6. Emit a `DomainOnboarded` event to the central bus
 
-Alternatively, configure Terraform manually by updating `infra/environments/domain-sales/terraform.tfvars` with the actual values from the governance module outputs:
+Alternatively, configure Terraform manually using the example domain repo as a reference.
+Copy `examples/example-domain-repo/infra/terraform.tfvars` and fill in the actual values
+from the governance module outputs:
 
 ```hcl
 domain                = "sales"
-environment           = "dev"
+account_id            = "123456789012"            # Replace
+owner                 = "sales-team@company.com"  # Replace
 aws_region            = "us-east-1"
-aws_org_id            = "o-xxxxxxxxxx"           # Replace
-central_account_id    = "000000000000"            # Replace
 central_event_bus_arn = "arn:aws:events:..."      # Replace
-mesh_catalog_writer_role_arn = "arn:aws:iam::..." # Replace
-quality_alert_sns_topic_arn  = "arn:aws:sns:..."  # Replace
 ```
 
-Then apply:
+Then apply from your domain repo's infra directory:
 
 ```bash
-cd infra/environments/domain-sales/
+cd infra/
 terraform init
 terraform plan
 terraform apply
@@ -131,13 +130,13 @@ terraform apply
 
 ### 5. Create the customer_orders Data Product
 
-The `product.yaml` is already provided at `examples/sales-domain/products/customer_orders/product.yaml`. You can use it directly or copy it as a starting point.
+The `product.yaml` is already provided at `examples/example-domain-repo/products/customer_orders/product.yaml`. You can use it directly or copy it as a starting point.
 
 Create the product using the CLI:
 
 ```bash
 datameshy --profile sales-engineer product create \
-  --spec examples/sales-domain/products/customer_orders/product.yaml \
+  --spec examples/example-domain-repo/products/customer_orders/product.yaml \
   --event-bus-arn "arn:aws:events:us-east-1:CENTRAL_ACCOUNT_ID:event-bus/mesh-central-bus"
 ```
 

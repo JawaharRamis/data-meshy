@@ -63,10 +63,11 @@ datameshy --profile new-domain-admin domain onboard \
 The CLI performs these actions automatically:
 
 1. **Validates inputs** -- domain name must be alphanumeric + hyphens, max 32 characters. Account ID must be 12 digits. Owner must be a valid email.
-2. **Scaffolds the Terraform environment** -- creates `infra/environments/domain-marketing/` with:
-   - `main.tf` -- instantiates `domain-account`, `data-product` (placeholder), and `monitoring` modules
-   - `terraform.tfvars` -- populated with domain name, account ID, and owner
-   - `backend.tf` -- S3 backend template (commented out, requires manual setup)
+2. **Scaffolds the domain repo** -- generates the layout shown in `examples/example-domain-repo/` with:
+   - `infra/main.tf` -- instantiates `domain-account` and `data-product` modules using `git::` sources
+   - `infra/terraform.tfvars` -- populated with domain name, account ID, and owner
+   - `infra/backend.tf` -- S3 backend template (requires manual setup)
+   - `.datameshy.toml` -- pins `platform_version = "1.0.0"`
 3. **Runs terraform plan** -- shows the resources that will be created
 4. **Prompts for confirmation** -- review the plan before applying
 5. **Runs terraform apply** -- provisions all resources
@@ -84,50 +85,41 @@ datameshy --profile new-domain-admin domain onboard \
 
 ### 4. Configure Terraform Variables
 
-Open `infra/environments/domain-marketing/terraform.tfvars` and update the cross-account references with actual values from the governance module:
+Open `infra/terraform.tfvars` in your domain repo and update the cross-account references
+with actual values from the governance module. See `examples/example-domain-repo/infra/terraform.tfvars`
+for a reference:
 
 ```hcl
-domain                        = "marketing"
-environment                   = "dev"
-aws_region                    = "us-east-1"
-
-# Cross-account references (REPLACE with actual values)
-aws_org_id                    = "o-xxxxxxxxxx"
-central_account_id            = "000000000000"
-central_event_bus_arn         = "arn:aws:events:us-east-1:000000000000:event-bus/mesh-central-bus"
-mesh_catalog_writer_role_arn  = "arn:aws:iam::000000000000:role/MeshCatalogWriterRole"
-quality_alert_sns_topic_arn   = "arn:aws:sns:us-east-1:000000000000:mesh-quality-alerts"
+domain                = "marketing"
+account_id            = "987654321098"
+owner                 = "marketing-data-team@company.com"
+aws_region            = "us-east-1"
+central_event_bus_arn = "arn:aws:events:us-east-1:000000000000:event-bus/mesh-central-bus"
 ```
 
-If `main.tf` was auto-generated, verify it correctly references the module sources:
+`main.tf` uses `git::` module sources pinned to the platform version:
 
 ```hcl
 module "domain_account" {
-  source = "../../modules/domain-account"
-
+  source                = "git::https://github.com/JawaharRamis/data-meshy-platform.git//infra/modules/domain-account?ref=v1.0.0"
   domain                = var.domain
-  environment           = var.environment
-  aws_org_id            = var.aws_org_id
-  central_account_id    = var.central_account_id
+  account_id            = var.account_id
+  owner                 = var.owner
   central_event_bus_arn = var.central_event_bus_arn
-  mesh_catalog_writer_role_arn = var.mesh_catalog_writer_role_arn
-
-  tags = var.tags
 }
 ```
 
 ### 5. Configure the Terraform Backend
 
-Edit `infra/environments/domain-marketing/backend.tf` and uncomment the S3 backend block. Fill in the bucket name and DynamoDB table:
+Edit `infra/backend.tf` in your domain repo and fill in the bucket name and DynamoDB lock table:
 
 ```hcl
 terraform {
   backend "s3" {
     bucket         = "data-meshy-tfstate-domain-marketing-ACCOUNT_ID"
-    key            = "domain-marketing/terraform.tfstate"
+    key            = "marketing/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
-    kms_key_id     = "alias/mesh-marketing"
     dynamodb_table = "data-meshy-tflock-domain-marketing"
   }
 }
@@ -142,7 +134,7 @@ terraform init -backend=false
 ### 6. Deploy the Domain Infrastructure
 
 ```bash
-cd infra/environments/domain-marketing/
+cd infra/
 
 # Initialize (use -backend=false on first run if backend not yet provisioned)
 terraform init
