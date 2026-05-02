@@ -1,19 +1,23 @@
 """CLI commands for domain management.
 
 Commands:
-  datameshy domain onboard  — provision a new domain into the mesh
+  datameshy domain onboard  — provision a new domain into the mesh (platform-team command)
+  datameshy domain init     — scaffold a new isolated domain repo (domain-team command)
+  datameshy domain upgrade  — upgrade an existing domain repo to a new platform version
   datameshy domain list     — list all onboarded domains
   datameshy domain status   — show domain details and product count
 """
 
 from __future__ import annotations
 
+import importlib.resources
 import re
 import shutil
 from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
+from jinja2 import BaseLoader, Environment
 from rich.console import Console
 from rich.table import Table
 
@@ -192,6 +196,186 @@ def domain_onboard(
         "  2. Create your first data product: [cyan]datameshy product create --spec product.yaml[/cyan]\n"
         "  3. List all domains: [cyan]datameshy domain list[/cyan]"
     )
+
+
+@app.command("init")
+def domain_init(
+    name: Annotated[str, typer.Option("--name", help="Domain name (alphanumeric + hyphens, max 32 chars).")],
+    account_id: Annotated[str, typer.Option("--account-id", help="12-digit AWS account ID for the domain.")],
+    owner: Annotated[str, typer.Option("--owner", help="Domain owner email address.")],
+    platform_version: Annotated[str, typer.Option("--platform-version", help="Platform version to pin.")] = "1.0.0",
+    output_dir: Annotated[Optional[Path], typer.Option("--output-dir", help="Directory to scaffold repo into.")] = None,
+) -> None:
+    """Scaffold a new isolated domain repo for a domain team.
+
+    This command renders all Jinja2 templates from the bundled domain_repo
+    scaffold and writes the resulting files into a new directory named
+    `data-meshy-{name}` under the specified output directory.
+
+    It does NOT run terraform or emit events — it only creates files.
+
+    Example:
+
+    \b
+      datameshy domain init \\
+        --name sales \\
+        --account-id 123456789012 \\
+        --owner sales-team@company.com
+    """
+    # Validate inputs
+    _validate_domain_name(name)
+    if not re.match(r"^\d{12}$", account_id):
+        raise typer.BadParameter(f"account-id must be a 12-digit AWS account ID (got: {account_id}).")
+    if "@" not in owner:
+        raise typer.BadParameter(f"owner must be a valid email address (got: {owner}).")
+    if not re.match(r"^\d+\.\d+\.\d+$", platform_version):
+        raise typer.BadParameter(f"platform-version must be semver X.Y.Z (got: {platform_version}).")
+
+    dest_root = (output_dir or Path.cwd()) / f"data-meshy-{name}"
+
+    template_vars = {
+        "domain": name,
+        "account_id": account_id,
+        "owner": owner,
+        "platform_version": platform_version,
+    }
+
+    # Load and render all templates from the bundled domain_repo directory
+    templates_pkg = importlib.resources.files("datameshy").joinpath("templates/domain_repo")
+    created_files: list[str] = []
+    jinja_env = Environment(loader=BaseLoader(), keep_trailing_newline=True)
+
+    def _render_dir(pkg_dir, dest_dir: Path) -> None:
+        """Recursively render a package resource directory into dest_dir."""
+        for entry in pkg_dir.iterdir():
+            entry_name = entry.name
+            if entry.is_dir():
+                _render_dir(entry, dest_dir / entry_name)
+            else:
+                dest_name = entry_name[:-3] if entry_name.endswith(".j2") else entry_name
+                dest_file = dest_dir / dest_name
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+                raw = entry.read_text(encoding="utf-8")
+                if entry_name.endswith(".j2"):
+                    content = jinja_env.from_string(raw).render(**template_vars)
+                else:
+                    content = raw
+                dest_file.write_text(content, encoding="utf-8")
+                created_files.append(str(dest_file.relative_to(dest_root.parent)))
+
+    _render_dir(templates_pkg, dest_root)
+
+    # Print summary
+    console.print(f"\n[bold green]Domain repo scaffolded:[/bold green] {dest_root}")
+    console.print(f"\n[bold]Files created ({len(created_files)}):[/bold]")
+    for f in sorted(created_files):
+        console.print(f"  [dim]{f}[/dim]")
+
+    console.print(
+        f"\n[bold]Next steps:[/bold]\n"
+        f"  1. [cyan]cd {dest_root}[/cyan]\n"
+        f"  2. Create a GitHub repo named [cyan]data-meshy-{name}[/cyan] and push\n"
+        f"  3. Configure OIDC in the platform: ask your platform team\n"
+        f"  4. Bootstrap infra: [cyan]cd infra && terraform init && terraform apply[/cyan]\n"
+        f"  5. Add your first data product under [cyan]products/[/cyan]\n"
+        f"\nPinned platform version: [yellow]{platform_version}[/yellow]"
+    )
+
+
+@app.command("upgrade")
+def domain_upgrade(
+    to: Annotated[str, typer.Option("--to", help="Target platform version (e.g. 1.1.0).")],
+    dir: Annotated[Optional[Path], typer.Option("--dir", help="Path to existing domain repo root.")] = None,
+) -> None:
+    """Upgrade an existing domain repo to a new platform version.
+
+    Reads `.datameshy.toml`, updates the pinned `[platform] version`,
+    and replaces version references in `infra/main.tf` and all
+    `.github/workflows/*.yml` files.
+
+    Safe to run multiple times — the operation is idempotent.
+
+    Example:
+
+    \b
+      datameshy domain upgrade --to 1.1.0 --dir ./data-meshy-sales
+    """
+    import tomllib
+
+    if not re.match(r"^\d+\.\d+\.\d+$", to):
+        raise typer.BadParameter(f"--to must be semver X.Y.Z (got: {to}).")
+
+    repo_root = (dir or Path.cwd()).resolve()
+    toml_path = repo_root / ".datameshy.toml"
+
+    if not toml_path.is_file():
+        console.print("[red]Not a datameshy domain repo:[/red] .datameshy.toml not found.")
+        raise typer.Exit(code=1)
+
+    toml_text = toml_path.read_text(encoding="utf-8")
+
+    try:
+        config = tomllib.loads(toml_text)
+    except Exception as exc:
+        console.print(f"[red]Failed to parse .datameshy.toml:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    old_version: str = config.get("platform", {}).get("version", "")
+    if not old_version:
+        console.print("[red].datameshy.toml is missing [platform] version field.[/red]")
+        raise typer.Exit(code=1)
+
+    if old_version == to:
+        console.print(f"[yellow]Already at version {to} — nothing to do.[/yellow]")
+        return
+
+    changed_lines: list[str] = []
+
+    # 1. Update .datameshy.toml
+    new_toml_text = toml_text.replace(
+        f'version = "{old_version}"',
+        f'version = "{to}"',
+        1,  # replace only the first occurrence (platform version)
+    )
+    if new_toml_text != toml_text:
+        toml_path.write_text(new_toml_text, encoding="utf-8")
+        changed_lines.append(f"  .datameshy.toml  : version {old_version!r} -> {to!r}")
+
+    # 2. Update infra/main.tf
+    main_tf = repo_root / "infra" / "main.tf"
+    if main_tf.is_file():
+        tf_text = main_tf.read_text(encoding="utf-8")
+        new_tf_text = re.sub(
+            rf"\?ref=v{re.escape(old_version)}",
+            f"?ref=v{to}",
+            tf_text,
+        )
+        if new_tf_text != tf_text:
+            main_tf.write_text(new_tf_text, encoding="utf-8")
+            changed_lines.append(f"  infra/main.tf    : ?ref=v{old_version} -> ?ref=v{to}")
+
+    # 3. Update .github/workflows/*.yml
+    workflows_dir = repo_root / ".github" / "workflows"
+    if workflows_dir.is_dir():
+        for yml_file in sorted(workflows_dir.glob("*.yml")):
+            wf_text = yml_file.read_text(encoding="utf-8")
+            new_wf_text = re.sub(
+                rf"@v{re.escape(old_version)}",
+                f"@v{to}",
+                wf_text,
+            )
+            if new_wf_text != wf_text:
+                yml_file.write_text(new_wf_text, encoding="utf-8")
+                rel = yml_file.relative_to(repo_root)
+                changed_lines.append(f"  {rel}  : @v{old_version} -> @v{to}")
+
+    if changed_lines:
+        console.print(f"\n[bold green]Upgraded[/bold green] {old_version} -> {to}:")
+        for line in changed_lines:
+            console.print(line)
+    else:
+        console.print(f"[yellow]No version strings found to update for {old_version} -> {to}.[/yellow]")
 
 
 @app.command("list")

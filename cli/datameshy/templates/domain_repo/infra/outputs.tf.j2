@@ -1,0 +1,14 @@
+output "raw_bucket" {
+  description = "S3 bucket for raw (bronze) layer data."
+  value       = module.domain_account.raw_bucket
+}
+
+output "gold_bucket" {
+  description = "S3 bucket for gold layer (published data products)."
+  value       = module.domain_account.gold_bucket
+}
+
+output "glue_catalog_db_gold" {
+  description = "Glue catalog database name for gold layer tables."
+  value       = module.domain_account.glue_catalog_db_gold
+}

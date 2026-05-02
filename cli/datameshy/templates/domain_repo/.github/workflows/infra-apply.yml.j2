@@ -1,0 +1,19 @@
+name: Infra Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  apply:
+    uses: JawaharRamis/data-meshy-platform/.github/workflows/reusable-infra-apply.yml@v{{ platform_version }}
+    with:
+      domain: {{ domain }}
+      working_directory: infra
+    secrets: inherit

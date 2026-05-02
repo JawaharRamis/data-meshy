@@ -1,0 +1,20 @@
+name: Infra Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/**"
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    uses: JawaharRamis/data-meshy-platform/.github/workflows/reusable-infra-plan.yml@v{{ platform_version }}
+    with:
+      domain: {{ domain }}
+      working_directory: infra
+    secrets: inherit

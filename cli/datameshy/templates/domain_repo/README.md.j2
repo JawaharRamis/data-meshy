@@ -1,0 +1,43 @@
+# data-meshy-{{ domain }}
+
+Domain repo for the **{{ domain }}** data domain, managed by the Data Meshy platform.
+
+## Owner
+
+{{ owner }}
+
+## Setup
+
+### Prerequisites
+
+- Terraform >= 1.6
+- AWS CLI configured with credentials for account `{{ account_id }}`
+- Access to the `datameshy` CLI (`pip install datameshy`)
+
+### Bootstrap infrastructure
+
+```bash
+cd infra
+terraform init
+terraform plan
+terraform apply
+```
+
+### Add a data product
+
+1. Create a product spec under `products/<product_name>/product.yaml`
+2. Open a pull request — the `product-validate` workflow validates the spec automatically
+3. Merge to `main` to publish
+
+## Workflows
+
+| Workflow | Trigger | Action |
+|---|---|---|
+| `infra-plan.yml` | PR touching `infra/` | Runs `terraform plan`, comments on PR |
+| `infra-apply.yml` | Push to `main` touching `infra/` | Runs `terraform apply` |
+| `product-validate.yml` | PR touching `products/` | Validates product specs |
+
+## Platform version
+
+This repo targets platform version **{{ platform_version }}**.
+To upgrade: `datameshy domain upgrade --to <new_version>`

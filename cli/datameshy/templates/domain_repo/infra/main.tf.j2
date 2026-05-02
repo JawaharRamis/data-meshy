@@ -1,0 +1,8 @@
+module "domain_account" {
+  source = "git::https://github.com/JawaharRamis/data-meshy-platform.git//infra/modules/domain-account?ref=v{{ platform_version }}"
+
+  domain     = var.domain
+  account_id = var.account_id
+  owner      = var.owner
+  aws_region = var.aws_region
+}
