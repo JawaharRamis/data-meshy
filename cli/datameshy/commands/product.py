@@ -472,6 +472,14 @@ def product_deprecate(
             )
             raise typer.Exit(code=1)
 
+        # HIGH 1: Ownership check — only the product owner or a MeshAdmin may deprecate
+        sts_client = session.client("sts")
+        caller_arn = sts_client.get_caller_identity()["Arn"]
+        product_owner = item.get("owner", "")
+        if caller_arn != product_owner and "MeshAdminRole" not in caller_arn:
+            console.print(f"[red]Authorization failed: caller is not the owner of '{domain}/{product_name}'.[/red]")
+            raise typer.Exit(code=1)
+
         # 2. Compute sunset_date
         sunset_date = (datetime.now(timezone.utc) + timedelta(days=sunset_days)).strftime("%Y-%m-%d")
 
@@ -818,6 +826,18 @@ def product_import(
             )
             raise typer.Exit(code=1)
         console.print(f"  [green]Iceberg table confirmed.[/green]")
+
+        # HIGH 2: Verify table S3 location belongs to the domain's gold bucket
+        sts_client = session.client("sts")
+        account_id = sts_client.get_caller_identity()["Account"]
+        expected_prefix = f"s3://{domain_name}-gold-{account_id}/"
+        table_location = glue_table_obj.get("StorageDescriptor", {}).get("Location", "")
+        if not table_location.startswith(expected_prefix):
+            console.print(
+                f"[red]Table location '{table_location}' does not belong to this domain's gold bucket "
+                f"(expected prefix: '{expected_prefix}').[/red]"
+            )
+            raise typer.Exit(code=1)
 
         # 4. Apply LF-Tags (best-effort)
         if lf_grantor_role_arn:

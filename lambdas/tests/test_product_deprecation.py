@@ -220,8 +220,48 @@ def test_sns_failure_does_not_raise():
         # Should not raise
         result = product_deprecation.handle_product_deprecated(_make_event(), None)
 
-    # Handler completes even with SNS error; notified count reflects attempted
+    # Handler completes even with SNS error; notified count is 0 because send failed
     assert result["status"] == "ok"
+    assert result["subscribers_notified"] == 0
+
+
+@mock_aws
+def test_invalid_account_id_format_skipped():
+    """Subscribers with non-12-digit account IDs are skipped and not counted."""
+    ddb = boto3.resource("dynamodb", region_name="us-east-1")
+    subs_table, _ = _make_tables(ddb)
+
+    # Invalid account IDs
+    subs_table.put_item(Item={
+        "subscription_id": "sub-bad-1",
+        "product_id": PRODUCT_ID,
+        "subscriber_account_id": "not-an-account",
+        "status": "ACTIVE",
+    })
+    subs_table.put_item(Item={
+        "subscription_id": "sub-bad-2",
+        "product_id": PRODUCT_ID,
+        "subscriber_account_id": "12345",  # too short
+        "status": "ACTIVE",
+    })
+    # Valid account — should still be notified
+    subs_table.put_item(Item={
+        "subscription_id": "sub-good",
+        "product_id": PRODUCT_ID,
+        "subscriber_account_id": "222222222222",
+        "status": "ACTIVE",
+    })
+
+    with patch("boto3.client") as mock_boto_client:
+        mock_sns = MagicMock()
+        mock_boto_client.return_value = mock_sns
+
+        import product_deprecation
+        result = product_deprecation.handle_product_deprecated(_make_event(), None)
+
+    # Only the valid account is counted
+    assert result["subscribers_notified"] == 1
+    assert mock_sns.publish.call_count == 1
 
 
 @mock_aws

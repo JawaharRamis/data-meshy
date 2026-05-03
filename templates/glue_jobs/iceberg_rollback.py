@@ -34,6 +34,7 @@ Integration note:
     ORDER BY committed_at DESC;
 """
 
+import re
 import sys
 import json
 import logging
@@ -44,6 +45,17 @@ from awsglue.utils import getResolvedOptions
 from awsglue.context import GlueContext
 from awsglue.job import Job
 from pyspark.context import SparkContext
+
+# ── Identifier validation (SQL injection guard) ───────────────────────────────
+
+_IDENT_RE = re.compile(r'^[a-zA-Z0-9_]{1,128}$')
+
+
+def _validate_ident(value: str, name: str) -> str:
+    if not _IDENT_RE.fullmatch(value):
+        raise ValueError(f"Invalid identifier for {name!r}: {value!r}")
+    return value
+
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
@@ -73,10 +85,10 @@ for key, default in OPTIONAL_ARGS.items():
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-domain = args["domain"]
+domain = _validate_ident(args["domain"], "domain")
 product_name = args["product_name"]
-gold_db = args["gold_db"]
-table_name = args["table_name"]
+gold_db = _validate_ident(args["gold_db"], "gold_db")
+table_name = _validate_ident(args["table_name"], "table_name")
 snapshot_id = int(args["snapshot_id"])
 product_id = f"{domain}#{product_name}"
 

@@ -14,6 +14,7 @@ Runtime: Python 3.12
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -62,11 +63,20 @@ def _notify_subscriber(
     sunset_date: str,
     domain: str,
     product_name: str,
-) -> None:
+) -> bool:
     """
     Send SNS notification to the subscriber's domain notification topic.
     Constructs the cross-account SNS topic ARN from the subscriber account ID.
+    Returns True on success, False on failure (so caller can track accurate count).
     """
+    # HIGH 4: Validate subscriber_account_id before constructing SNS ARN
+    if not re.fullmatch(r'\d{12}', subscriber_account_id):
+        logger.warning(
+            "Skipping subscriber with invalid account_id format",
+            extra={"account_id": subscriber_account_id},
+        )
+        return False
+
     topic_arn = (
         f"arn:aws:sns:{AWS_REGION}:{subscriber_account_id}:{SUBSCRIBER_SNS_TOPIC_NAME}"
     )
@@ -96,6 +106,7 @@ def _notify_subscriber(
             "SNS notification sent",
             extra={"subscriber_account": subscriber_account_id, "topic": topic_arn},
         )
+        return True
     except ClientError as exc:
         logger.warning(
             "Failed to send SNS notification",
@@ -105,6 +116,7 @@ def _notify_subscriber(
                 "error": str(exc),
             },
         )
+        return False
 
 
 def _write_audit(product_id: str, sunset_date: str, notified_count: int) -> None:
@@ -158,19 +170,20 @@ def handle_product_deprecated(event: dict, context: Any) -> dict:
     subscribers = _get_active_subscribers(product_id)
     notified = 0
 
-    # 2. Notify each subscriber
+    # 2. Notify each subscriber (MEDIUM 4: only count on successful send)
     for sub in subscribers:
         subscriber_account_id = sub.get("subscriber_account_id", "")
         if not subscriber_account_id:
             continue
-        _notify_subscriber(
+        sent = _notify_subscriber(
             subscriber_account_id=subscriber_account_id,
             product_id=product_id,
             sunset_date=sunset_date,
             domain=domain,
             product_name=product_name,
         )
-        notified += 1
+        if sent:
+            notified += 1
 
     logger.info(
         "Deprecation notifications sent",

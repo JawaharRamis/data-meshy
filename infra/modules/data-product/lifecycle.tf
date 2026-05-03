@@ -87,10 +87,23 @@ resource "aws_iam_role_policy" "scheduler_retirement_invoke" {
       {
         Effect   = "Allow"
         Action   = ["lambda:InvokeFunction"]
-        Resource = var.retirement_lambda_arn != "" ? [var.retirement_lambda_arn] : ["arn:aws:lambda:${local.region}:${local.account_id}:function:*-retirement"]
+        Resource = [var.retirement_lambda_arn]
       }
     ]
   })
+}
+
+# ── Lambda permission: restrict retirement Lambda invocation to Scheduler ──────
+# CRITICAL 1: Prevents unauthorized invocation of the retirement Lambda which
+# performs mass LF grant revocations. Only the specific scheduler group may invoke.
+
+resource "aws_lambda_permission" "retirement_scheduler" {
+  count         = var.retirement_lambda_arn != "" ? 1 : 0
+  statement_id  = "AllowSchedulerInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = var.retirement_lambda_arn
+  principal     = "scheduler.amazonaws.com"
+  source_arn    = "arn:aws:scheduler:${local.region}:${local.account_id}:schedule/mesh-retirement/*"
 }
 
 # ── IAM role for retirement Lambda execution ──────────────────────────────────

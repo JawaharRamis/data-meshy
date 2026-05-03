@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime
 from typing import Any
 
 import boto3
@@ -144,20 +145,30 @@ def _revoke_subscription_record(product_id: str, subscription: dict) -> None:
         )
 
 
-def _mark_product_retired(product_id: str) -> None:
-    """Update mesh-products: set status=RETIRED and retired_at."""
+def _mark_product_retired_atomic(product_id: str) -> bool:
+    """
+    Atomically set status=RETIRED using a conditional update.
+    Returns True if the update succeeded (product was not already RETIRED).
+    Returns False if the product was already RETIRED (idempotent skip).
+    """
     ddb = _get_dynamodb()
     table = ddb.Table(PRODUCTS_TABLE)
-    table.update_item(
-        Key={"product_id": product_id},
-        UpdateExpression="SET #s = :retired, retired_at = :now",
-        ExpressionAttributeNames={"#s": "status"},
-        ExpressionAttributeValues={
-            ":retired": "RETIRED",
-            ":now": _now_iso(),
-        },
-    )
-    logger.info("Product marked RETIRED", extra={"product_id": product_id})
+    try:
+        table.update_item(
+            Key={"product_id": product_id},
+            UpdateExpression="SET #s = :retired, retired_at = :ts",
+            ConditionExpression="attribute_not_exists(#s) OR #s <> :retired",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":retired": "RETIRED",
+                ":ts": datetime.utcnow().isoformat(),
+            },
+        )
+        logger.info("Product marked RETIRED", extra={"product_id": product_id})
+        return True
+    except table.meta.client.exceptions.ConditionalCheckFailedException:
+        logger.info("Product already RETIRED — idempotent skip", extra={"product": product_id})
+        return False
 
 
 def _emit_audit_event(product_id: str, subscriptions_revoked: int) -> None:
@@ -208,6 +219,13 @@ def handle_retirement(event: dict, context: Any) -> dict:
       domain       : str — e.g. "sales"
       product_name : str — e.g. "customer_orders"
     """
+    # CRITICAL 1: Validate event source before any business logic
+    ALLOWED_SOURCES = {"aws.scheduler", "datameshy.scheduler"}
+    event_source = event.get("source", "")
+    if event_source not in ALLOWED_SOURCES:
+        logger.error("Unauthorized invocation source", extra={"source": event_source})
+        raise ValueError(f"Unauthorized invocation source: {event_source!r}")
+
     # Support EventBridge Scheduler wrapping (detail may be a JSON string)
     detail = event
     if "detail" in event:
@@ -231,22 +249,23 @@ def handle_retirement(event: dict, context: Any) -> dict:
         logger.warning("Product not found in mesh-products", extra={"product_id": product_id})
         return {"product_id": product_id, "status": "not_found"}
 
-    current_status = product_item.get("status", "")
-    if current_status == "RETIRED":
-        logger.info("Product already RETIRED — idempotent return", extra={"product_id": product_id})
-        return {"product_id": product_id, "status": "already_retired"}
-
     glue_database = product_item.get("glue_catalog_db_gold", f"{domain}_gold")
     glue_table = product_item.get("glue_table", product_name)
 
-    # 2. Fetch active subscriptions
+    # 2. Atomically mark product RETIRED (idempotency guard)
+    # This replaces the simple status check — if already RETIRED the condition fails
+    retired_now = _mark_product_retired_atomic(product_id)
+    if not retired_now:
+        return {"product_id": product_id, "status": "already_retired"}
+
+    # 3. Fetch active subscriptions
     subscriptions = _get_active_subscriptions(product_id)
     logger.info(
         "Found active subscriptions",
         extra={"product_id": product_id, "count": len(subscriptions)},
     )
 
-    # 3. Revoke LF grants
+    # 4. Revoke LF grants
     revoked_count = _revoke_lf_grants(
         product_id=product_id,
         subscriptions=subscriptions,
@@ -254,14 +273,11 @@ def handle_retirement(event: dict, context: Any) -> dict:
         glue_table=glue_table,
     )
 
-    # 4. Update subscription records
+    # 5. Update subscription records
     for sub in subscriptions:
         _revoke_subscription_record(product_id, sub)
 
-    # 5. Mark product RETIRED
-    _mark_product_retired(product_id)
-
-    # 6. Emit audit event
+    # 6. Emit audit event (after retirement confirmed)
     _emit_audit_event(product_id=product_id, subscriptions_revoked=revoked_count)
 
     result = {

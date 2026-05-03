@@ -106,7 +106,12 @@ class _FakeEntityNotFound(Exception):
     """Stand-in for botocore EntityNotFoundException."""
 
 
-def _make_glue_mock(iceberg=True, exists=True):
+MOCK_ACCOUNT_ID = "123456789012"
+VALID_LOCATION = f"s3://sales-gold-{MOCK_ACCOUNT_ID}/revenue_daily"
+INVALID_LOCATION = "s3://other-bucket-999999999999/revenue_daily"
+
+
+def _make_glue_mock(iceberg=True, exists=True, location=VALID_LOCATION):
     """Return a mock Glue client that returns an Iceberg table."""
     mock_glue = MagicMock()
     # Wire exceptions so isinstance checks work
@@ -120,7 +125,7 @@ def _make_glue_mock(iceberg=True, exists=True):
                 "DatabaseName": "sales_domain",
                 "Parameters": {"table_type": "ICEBERG" if iceberg else "HIVE"},
                 "StorageDescriptor": {
-                    "Location": "s3://sales-gold-123/revenue_daily",
+                    "Location": location,
                     "Columns": [],
                 },
             }
@@ -147,6 +152,10 @@ class TestProductImport:
         def patched_client(service, **kwargs):
             if service == "glue":
                 return mock_glue
+            if service == "sts":
+                mock_sts = MagicMock()
+                mock_sts.get_caller_identity.return_value = {"Account": MOCK_ACCOUNT_ID}
+                return mock_sts
             return real_client(service, **kwargs)
 
         with _setup_mock_session(session), \
@@ -231,6 +240,10 @@ class TestProductImport:
         def patched_client(service, **kwargs):
             if service == "glue":
                 return mock_glue
+            if service == "sts":
+                mock_sts = MagicMock()
+                mock_sts.get_caller_identity.return_value = {"Account": MOCK_ACCOUNT_ID}
+                return mock_sts
             return real_client(service, **kwargs)
 
         with _setup_mock_session(session), \
@@ -288,6 +301,10 @@ class TestProductImport:
         def patched_client(service, **kwargs):
             if service == "glue":
                 return mock_glue
+            if service == "sts":
+                mock_sts = MagicMock()
+                mock_sts.get_caller_identity.return_value = {"Account": MOCK_ACCOUNT_ID}
+                return mock_sts
             return real_client(service, **kwargs)
 
         with _setup_mock_session(session), \
@@ -324,6 +341,10 @@ class TestProductImport:
         def patched_client(service, **kwargs):
             if service == "glue":
                 return mock_glue
+            if service == "sts":
+                mock_sts = MagicMock()
+                mock_sts.get_caller_identity.return_value = {"Account": MOCK_ACCOUNT_ID}
+                return mock_sts
             return real_client(service, **kwargs)
 
         with _setup_mock_session(session), \
@@ -344,3 +365,38 @@ class TestProductImport:
         assert "imported_at" in item
         assert item["status"] == "ACTIVE"
         assert item["import_source"] == "glue"
+
+    @mock_aws
+    def test_import_rejects_wrong_s3_prefix(self, spec_file):
+        """import rejects table whose S3 location does not match the domain's gold bucket."""
+        os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+        os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+        os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+        session = boto3.Session(region_name="us-east-1")
+        _make_products_table(session)
+
+        # Table in a different/wrong bucket
+        mock_glue = _make_glue_mock(location=INVALID_LOCATION)
+        real_client = session.client
+
+        def patched_client(service, **kwargs):
+            if service == "glue":
+                return mock_glue
+            if service == "sts":
+                mock_sts = MagicMock()
+                mock_sts.get_caller_identity.return_value = {"Account": MOCK_ACCOUNT_ID}
+                return mock_sts
+            return real_client(service, **kwargs)
+
+        with _setup_mock_session(session), \
+             patch.object(session, "client", side_effect=patched_client):
+            result = _invoke([
+                "product", "import",
+                "--spec", spec_file,
+                "--glue-database", "sales_domain",
+                "--glue-table", "revenue_daily",
+            ])
+
+        assert result.exit_code != 0
+        assert "gold bucket" in result.output.lower() or "location" in result.output.lower()

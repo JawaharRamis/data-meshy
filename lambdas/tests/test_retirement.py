@@ -85,8 +85,9 @@ def _make_tables(ddb, product_status="DEPRECATED"):
     return subs_table, products_table, audit_table
 
 
-def _make_event():
+def _make_event(source="aws.scheduler"):
     return {
+        "source": source,
         "product_id": PRODUCT_ID,
         "domain": DOMAIN,
         "product_name": PRODUCT_NAME,
@@ -323,3 +324,53 @@ def test_no_subscribers_retires_cleanly():
     assert result["status"] == "retired"
     assert result["subscriptions_revoked"] == 0
     mock_lf.batch_revoke_permissions.assert_not_called()
+
+
+@mock_aws
+def test_unauthorized_source_raises_value_error():
+    """Invocation from an unknown source raises ValueError before any business logic."""
+    import retirement
+
+    bad_event = _make_event(source="unknown.source")
+
+    with pytest.raises(ValueError, match="Unauthorized invocation source"):
+        retirement.handle_retirement(bad_event, None)
+
+
+@mock_aws
+def test_missing_source_raises_value_error():
+    """Invocation with no source field raises ValueError."""
+    import retirement
+
+    no_source_event = {
+        "product_id": PRODUCT_ID,
+        "domain": DOMAIN,
+        "product_name": PRODUCT_NAME,
+        # "source" deliberately omitted
+    }
+
+    with pytest.raises(ValueError, match="Unauthorized invocation source"):
+        retirement.handle_retirement(no_source_event, None)
+
+
+@mock_aws
+def test_datameshy_scheduler_source_allowed():
+    """datameshy.scheduler source is accepted (internal scheduler)."""
+    ddb = boto3.resource("dynamodb", region_name="us-east-1")
+    _make_tables(ddb)
+
+    with patch("boto3.client") as mock_boto_client:
+        mock_sts = MagicMock()
+        mock_sts.get_caller_identity.return_value = {"Account": "111111111111"}
+
+        def client_factory(service, **kwargs):
+            if service == "sts":
+                return mock_sts
+            return MagicMock()
+
+        mock_boto_client.side_effect = client_factory
+
+        import retirement
+        result = retirement.handle_retirement(_make_event(source="datameshy.scheduler"), None)
+
+    assert result["status"] in ("retired", "already_retired")

@@ -206,9 +206,8 @@ variable "product_deprecation_lambda_arn" {
 }
 
 variable "retirement_lambda_arn" {
-  description = "ARN of the retirement Lambda (triggered by EventBridge Scheduler at sunset_date). Leave empty for wildcard policy."
+  description = "ARN of the retirement Lambda (triggered by EventBridge Scheduler at sunset_date). Required — Terraform plan fails if not set, preventing wildcard Lambda permissions."
   type        = string
-  default     = ""
 }
 
 variable "rollback_glue_script_s3_path" {

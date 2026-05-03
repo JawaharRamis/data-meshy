@@ -25,7 +25,12 @@ def _setup_mock_session(session):
     return patch.object(aws_client, "get_session", return_value=session)
 
 
-def _make_tables(session, put_product=True, status="ACTIVE"):
+OWNER_ARN = "arn:aws:iam::123456789012:user/sales-owner"
+NON_OWNER_ARN = "arn:aws:iam::123456789012:user/some-other-user"
+ADMIN_ARN = "arn:aws:iam::123456789012:role/MeshAdminRole"
+
+
+def _make_tables(session, put_product=True, status="ACTIVE", owner=OWNER_ARN):
     dynamodb = session.resource("dynamodb")
 
     products_table = dynamodb.create_table(
@@ -67,7 +72,7 @@ def _make_tables(session, put_product=True, status="ACTIVE"):
             "product_id": "sales#customer_orders",
             "domain": "sales",
             "product_name": "customer_orders",
-            "owner": "sales@company.com",
+            "owner": owner,
             "status": status,
         })
 
@@ -87,14 +92,22 @@ class TestProductDeprecate:
         session = boto3.Session(region_name="us-east-1")
         products_table = _make_tables(session)
 
+        real_client = session.client
+
+        def patched_client(service, **kwargs):
+            if service == "sts":
+                mock_sts = MagicMock()
+                mock_sts.get_caller_identity.return_value = {"Arn": OWNER_ARN}
+                return mock_sts
+            if service == "scheduler":
+                mock_sched = MagicMock()
+                mock_sched.create_schedule.return_value = {"ScheduleArn": "arn:aws:scheduler:us-east-1:123:schedule/retire"}
+                return mock_sched
+            return real_client(service, **kwargs)
+
         with _setup_mock_session(session), \
              patch("datameshy.lib.aws_client.put_mesh_event", return_value="evt-123"), \
-             patch("boto3.client") as mock_boto_client:
-            # Mock scheduler client
-            mock_sched = MagicMock()
-            mock_sched.create_schedule.return_value = {"ScheduleArn": "arn:aws:scheduler:us-east-1:123:schedule/retire-sales-customer_orders"}
-            mock_boto_client.return_value = mock_sched
-
+             patch.object(session, "client", side_effect=patched_client):
             result = _invoke([
                 "product", "deprecate",
                 "sales/customer_orders",
@@ -181,11 +194,20 @@ class TestProductDeprecate:
         session = boto3.Session(region_name="us-east-1")
         _make_tables(session)
 
+        real_client = session.client
+
+        def patched_client(service, **kwargs):
+            if service == "sts":
+                mock_sts = MagicMock()
+                mock_sts.get_caller_identity.return_value = {"Arn": OWNER_ARN}
+                return mock_sts
+            if service == "scheduler":
+                return MagicMock()
+            return real_client(service, **kwargs)
+
         with _setup_mock_session(session), \
              patch("datameshy.lib.aws_client.put_mesh_event", return_value="evt-456") as mock_emit, \
-             patch("boto3.client") as mock_boto_client:
-            mock_boto_client.return_value = MagicMock()
-
+             patch.object(session, "client", side_effect=patched_client):
             result = _invoke([
                 "product", "deprecate",
                 "sales/customer_orders",
@@ -215,9 +237,22 @@ class TestProductDeprecate:
         mock_sched = MagicMock()
         mock_sched.create_schedule.return_value = {"ScheduleArn": "arn:aws:scheduler:us-east-1:123:schedule/retire-test"}
 
+        real_client = session.client
+
+        def patched_session_client(service, **kwargs):
+            if service == "sts":
+                mock_sts = MagicMock()
+                mock_sts.get_caller_identity.return_value = {"Arn": OWNER_ARN}
+                return mock_sts
+            return real_client(service, **kwargs)
+
+        # The scheduler is created via `boto3.client("scheduler", ...)` inside
+        # the command's local import; patch boto3.client globally
         with _setup_mock_session(session), \
              patch("datameshy.lib.aws_client.put_mesh_event", return_value="evt-789"), \
+             patch.object(session, "client", side_effect=patched_session_client), \
              patch("boto3.client", return_value=mock_sched):
+
             result = _invoke([
                 "product", "deprecate",
                 "sales/customer_orders",
@@ -259,3 +294,70 @@ class TestProductDeprecate:
         assert result.exit_code == 0
         assert "DEPRECATED" in result.output
         assert "2026-08-01" in result.output
+
+    @mock_aws
+    def test_deprecate_rejects_non_owner(self):
+        """deprecate fails with authorization error when caller is not the product owner."""
+        os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+        os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+        os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+        session = boto3.Session(region_name="us-east-1")
+        _make_tables(session, owner=OWNER_ARN)
+
+        real_client = session.client
+
+        def patched_client(service, **kwargs):
+            if service == "sts":
+                mock_sts = MagicMock()
+                # Caller is NOT the owner
+                mock_sts.get_caller_identity.return_value = {"Arn": NON_OWNER_ARN}
+                return mock_sts
+            return real_client(service, **kwargs)
+
+        with _setup_mock_session(session), \
+             patch.object(session, "client", side_effect=patched_client):
+            result = _invoke([
+                "product", "deprecate",
+                "sales/customer_orders",
+                "--sunset-days", "90",
+            ])
+
+        assert result.exit_code != 0
+        assert "authorization failed" in result.output.lower() or "not the owner" in result.output.lower()
+
+    @mock_aws
+    def test_deprecate_allows_mesh_admin(self):
+        """deprecate succeeds when caller has MeshAdminRole even if not the owner."""
+        os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+        os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+        os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+        session = boto3.Session(region_name="us-east-1")
+        products_table = _make_tables(session, owner=OWNER_ARN)
+
+        real_client = session.client
+
+        def patched_client(service, **kwargs):
+            if service == "sts":
+                mock_sts = MagicMock()
+                # Caller has MeshAdminRole
+                mock_sts.get_caller_identity.return_value = {"Arn": ADMIN_ARN}
+                return mock_sts
+            if service == "scheduler":
+                return MagicMock()
+            return real_client(service, **kwargs)
+
+        with _setup_mock_session(session), \
+             patch("datameshy.lib.aws_client.put_mesh_event", return_value="evt-admin"), \
+             patch.object(session, "client", side_effect=patched_client):
+            result = _invoke([
+                "product", "deprecate",
+                "sales/customer_orders",
+                "--sunset-days", "30",
+                "--event-bus-arn", "arn:fake:bus",
+            ])
+
+        assert result.exit_code == 0, result.output
+        item = products_table.get_item(Key={"product_id": "sales#customer_orders"}).get("Item", {})
+        assert item["status"] == "DEPRECATED"
