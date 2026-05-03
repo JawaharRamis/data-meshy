@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any
 
 import boto3
@@ -36,8 +37,11 @@ DEFAULT_DOMAINS_TABLE = "mesh-domains"
 
 _CORS_HEADERS = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
 }
+
+_PARAM_RE = re.compile(r"^[a-z0-9_\-\s]{1,256}$")
+_MAX_PARAM_LEN = 256
+_MAX_RESULTS = 500
 
 
 # ---------------------------------------------------------------------------
@@ -45,14 +49,31 @@ _CORS_HEADERS = {
 # ---------------------------------------------------------------------------
 
 
+def _validate_param(name: str, value: str | None) -> str | None:
+    """Validate a query parameter value. Returns the value or raises 400 via _error sentinel."""
+    if value is None:
+        return None
+    if len(value) > _MAX_PARAM_LEN:
+        raise ValueError(f"Parameter '{name}' exceeds maximum length of {_MAX_PARAM_LEN} characters")
+    if not _PARAM_RE.match(value):
+        raise ValueError(
+            f"Parameter '{name}' contains invalid characters. "
+            "Must match ^[a-z0-9_\\-\\s]{1,256}$."
+        )
+    return value
+
+
 def handler(event: dict, context: Any) -> dict:
     """API Gateway proxy handler for GET /catalog/search."""
     params: dict[str, str] = event.get("queryStringParameters") or {}
 
-    keyword = params.get("keyword")
-    domain = params.get("domain")
-    tag = params.get("tag")
-    classification = params.get("classification")
+    try:
+        keyword = _validate_param("keyword", params.get("keyword"))
+        domain = _validate_param("domain", params.get("domain"))
+        tag = _validate_param("tag", params.get("tag"))
+        classification = _validate_param("classification", params.get("classification"))
+    except ValueError as exc:
+        return _error(400, str(exc))
 
     products_table = os.environ.get("MESH_PRODUCTS_TABLE", DEFAULT_PRODUCTS_TABLE)
     domains_table = os.environ.get("MESH_DOMAINS_TABLE", DEFAULT_DOMAINS_TABLE)
@@ -74,6 +95,9 @@ def handler(event: dict, context: Any) -> dict:
         else:
             items = _search_by_classification(classification, products_table)
 
+        # Cap results to prevent overly large responses
+        items = items[:_MAX_RESULTS]
+
         return {
             "statusCode": 200,
             "headers": _CORS_HEADERS,
@@ -82,7 +106,7 @@ def handler(event: dict, context: Any) -> dict:
 
     except ClientError as exc:
         logger.exception("DynamoDB error during catalog search")
-        return _error(500, f"Internal error: {exc.response['Error']['Message']}")
+        return _error(500, "Internal server error")
 
 
 # ---------------------------------------------------------------------------

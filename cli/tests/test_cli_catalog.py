@@ -107,7 +107,7 @@ class TestCatalogSearchKeyword:
             result = _invoke([
                 "catalog", "search",
                 "--keyword", "orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -128,7 +128,7 @@ class TestCatalogSearchKeyword:
             result = _invoke([
                 "catalog", "search",
                 "--keyword", "nonexistent",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -143,7 +143,7 @@ class TestCatalogSearchKeyword:
             result = _invoke([
                 "catalog", "search",
                 "--keyword", "orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -160,7 +160,7 @@ class TestCatalogSearchKeyword:
             result = _invoke([
                 "catalog", "search",
                 "--keyword", "orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -184,7 +184,7 @@ class TestCatalogSearchDomain:
             result = _invoke([
                 "catalog", "search",
                 "--domain", "sales",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -203,7 +203,7 @@ class TestCatalogSearchDomain:
             result = _invoke([
                 "catalog", "search",
                 "--domain", "marketing",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0
@@ -226,7 +226,7 @@ class TestCatalogSearchTag:
             result = _invoke([
                 "catalog", "search",
                 "--tag", "env=prod",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -243,7 +243,7 @@ class TestCatalogSearchTag:
             result = _invoke([
                 "catalog", "search",
                 "--tag", "ecommerce",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -268,7 +268,7 @@ class TestCatalogSearchClassification:
             result = _invoke([
                 "catalog", "search",
                 "--classification", "internal",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -285,7 +285,7 @@ class TestCatalogSearchClassification:
             result = _invoke([
                 "catalog", "search",
                 "--classification", "confidential",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0
@@ -324,7 +324,7 @@ class TestCatalogBrowse:
         with _patch_session(session), _patch_signed_request(api_response) as mock_req:
             result = _invoke([
                 "catalog", "browse",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -350,7 +350,7 @@ class TestCatalogBrowse:
         with _patch_session(session), _patch_signed_request(api_response):
             result = _invoke([
                 "catalog", "browse",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -364,7 +364,7 @@ class TestCatalogBrowse:
         with _patch_session(session), _patch_signed_request(api_response):
             result = _invoke([
                 "catalog", "browse",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -398,7 +398,7 @@ class TestCatalogBrowse:
             ) as mock_req:
                 result = _invoke([
                     "catalog", "browse",
-                    "--api-url", "https://api.example.com/prod",
+                    "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
                 ])
 
         assert result.exit_code == 0, result.output
@@ -424,7 +424,7 @@ class TestCatalogDescribe:
         with _patch_session(session), _patch_signed_request(api_response) as mock_req:
             result = _invoke([
                 "catalog", "describe", "sales/customer_orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -445,7 +445,7 @@ class TestCatalogDescribe:
         with _patch_session(session), _patch_signed_request(api_response):
             result = _invoke([
                 "catalog", "describe", "sales/customer_orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -459,7 +459,7 @@ class TestCatalogDescribe:
         with _patch_session(session), _patch_signed_request(api_response):
             result = _invoke([
                 "catalog", "describe", "sales/customer_orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -473,7 +473,7 @@ class TestCatalogDescribe:
         with _patch_session(session), _patch_signed_request(api_response):
             result = _invoke([
                 "catalog", "describe", "sales/customer_orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -487,7 +487,7 @@ class TestCatalogDescribe:
         with _patch_session(session), _patch_signed_request(api_response):
             result = _invoke([
                 "catalog", "describe", "sales/customer_orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -501,7 +501,7 @@ class TestCatalogDescribe:
         with _patch_session(session), _patch_signed_request(api_response):
             result = _invoke([
                 "catalog", "describe", "sales/old_orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -515,7 +515,7 @@ class TestCatalogDescribe:
         with _patch_session(session), _patch_signed_request(retired_product):
             result = _invoke([
                 "catalog", "describe", "sales/ancient_orders",
-                "--api-url", "https://api.example.com/prod",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
             ])
 
         assert result.exit_code == 0, result.output
@@ -532,7 +532,7 @@ class TestCatalogDescribe:
             ):
                 result = _invoke([
                     "catalog", "describe", "sales/does_not_exist",
-                    "--api-url", "https://api.example.com/prod",
+                    "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
                 ])
 
         assert result.exit_code != 0
@@ -541,7 +541,7 @@ class TestCatalogDescribe:
         """describe requires <domain>/<product> format."""
         result = _invoke([
             "catalog", "describe", "invaliddomain",
-            "--api-url", "https://api.example.com/prod",
+            "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
         ])
         # Should show an error about format
         assert result.exit_code != 0
@@ -594,7 +594,7 @@ class TestCatalogApiUrlResolution:
 
     def test_api_url_from_env_var(self, monkeypatch):
         """DATAMESHY_API_URL env var is used when --api-url is absent."""
-        monkeypatch.setenv("DATAMESHY_API_URL", "https://env-api.example.com/prod")
+        monkeypatch.setenv("DATAMESHY_API_URL", "https://envapi.execute-api.us-east-1.amazonaws.com/prod")
         session = _mock_session()
         api_response = {"items": [_SAMPLE_PRODUCT]}
 
@@ -631,8 +631,113 @@ class TestCatalogApiUrlResolution:
                 result = _invoke([
                     "catalog", "search",
                     "--keyword", "orders",
-                    "--api-url", "https://api.example.com/prod",
+                    "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
                 ])
 
         assert result.exit_code != 0
         assert "authoris" in result.output.lower() or "iam" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Security: API URL validation (LOW 1)
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogApiUrlValidation:
+    """LOW 1: --api-url must match the execute-api pattern."""
+
+    def test_invalid_api_url_rejected(self):
+        """--api-url with a non-execute-api URL is rejected with BadParameter."""
+        session = _mock_session()
+        result = _invoke([
+            "catalog", "search",
+            "--keyword", "orders",
+            "--api-url", "https://evil.example.com/inject",
+        ])
+        assert result.exit_code != 0
+
+    def test_http_url_rejected(self):
+        """--api-url with http (not https) is rejected."""
+        session = _mock_session()
+        result = _invoke([
+            "catalog", "search",
+            "--keyword", "orders",
+            "--api-url", "http://abc123.execute-api.us-east-1.amazonaws.com/prod",
+        ])
+        assert result.exit_code != 0
+
+    def test_valid_execute_api_url_accepted(self):
+        """Valid execute-api URL is accepted."""
+        session = _mock_session()
+        api_response = {"items": [_SAMPLE_PRODUCT]}
+
+        with _patch_session(session), _patch_signed_request(api_response):
+            result = _invoke([
+                "catalog", "search",
+                "--keyword", "orders",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
+            ])
+
+        assert result.exit_code == 0, result.output
+
+
+# ---------------------------------------------------------------------------
+# Security: path traversal prevention in catalog describe (CRITICAL 1)
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogDescribePathTraversal:
+    """CRITICAL 1: catalog describe rejects malicious path segments."""
+
+    def test_path_traversal_dotdot_rejected(self):
+        """describe with '../' in path is rejected before URL construction."""
+        result = _invoke([
+            "catalog", "describe", "../etc/passwd",
+            "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
+        ])
+        assert result.exit_code != 0
+
+    def test_path_traversal_encoded_slash_rejected(self):
+        """describe with URL-encoded traversal chars is rejected."""
+        result = _invoke([
+            "catalog", "describe", "sales/../../admin",
+            "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
+        ])
+        assert result.exit_code != 0
+
+    def test_uppercase_segment_rejected(self):
+        """describe rejects uppercase characters in domain segment."""
+        result = _invoke([
+            "catalog", "describe", "Sales/customer_orders",
+            "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
+        ])
+        assert result.exit_code != 0
+
+    def test_special_chars_in_product_rejected(self):
+        """describe rejects special characters in product_name segment."""
+        result = _invoke([
+            "catalog", "describe", "sales/product!name",
+            "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
+        ])
+        assert result.exit_code != 0
+
+    def test_valid_path_accepted(self):
+        """describe accepts valid lowercase alphanumeric path with underscore/hyphen."""
+        session = _mock_session()
+        api_response = _SAMPLE_PRODUCT
+
+        with _patch_session(session), _patch_signed_request(api_response):
+            result = _invoke([
+                "catalog", "describe", "sales/customer-orders_v2",
+                "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
+            ])
+
+        assert result.exit_code == 0, result.output
+
+    def test_too_many_slashes_rejected(self):
+        """describe with more than one slash is rejected."""
+        result = _invoke([
+            "catalog", "describe", "sales/customer/extra",
+            "--api-url", "https://abc123.execute-api.us-east-1.amazonaws.com/prod",
+        ])
+        assert result.exit_code != 0

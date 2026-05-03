@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any
 
 import boto3
@@ -34,8 +35,10 @@ DEFAULT_DOMAINS_TABLE = "mesh-domains"
 
 _CORS_HEADERS = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
 }
+
+_PARAM_RE = re.compile(r"^[a-z0-9_\-\s]{1,256}$")
+_MAX_PARAM_LEN = 256
 
 
 # ---------------------------------------------------------------------------
@@ -43,8 +46,33 @@ _CORS_HEADERS = {
 # ---------------------------------------------------------------------------
 
 
+def _validate_param(name: str, value: str | None) -> str | None:
+    """Validate a query parameter value. Raises ValueError on bad input."""
+    if value is None:
+        return None
+    if len(value) > _MAX_PARAM_LEN:
+        raise ValueError(f"Parameter '{name}' exceeds maximum length of {_MAX_PARAM_LEN} characters")
+    if not _PARAM_RE.match(value):
+        raise ValueError(
+            f"Parameter '{name}' contains invalid characters. "
+            "Must match ^[a-z0-9_\\-\\s]{1,256}$."
+        )
+    return value
+
+
 def handler(event: dict, context: Any) -> dict:
     """API Gateway proxy handler for GET /catalog/browse."""
+    params: dict[str, str] = event.get("queryStringParameters") or {}
+
+    # Validate all recognised query parameters before any DynamoDB call
+    try:
+        _validate_param("domain", params.get("domain"))
+        _validate_param("keyword", params.get("keyword"))
+        _validate_param("tag", params.get("tag"))
+        _validate_param("classification", params.get("classification"))
+    except ValueError as exc:
+        return _error(400, str(exc))
+
     products_table = os.environ.get("MESH_PRODUCTS_TABLE", DEFAULT_PRODUCTS_TABLE)
     domains_table = os.environ.get("MESH_DOMAINS_TABLE", DEFAULT_DOMAINS_TABLE)
 
@@ -70,7 +98,7 @@ def handler(event: dict, context: Any) -> dict:
 
     except ClientError as exc:
         logger.exception("DynamoDB error during catalog browse")
-        return _error(500, f"Internal error: {exc.response['Error']['Message']}")
+        return _error(500, "Internal server error")
 
 
 # ---------------------------------------------------------------------------

@@ -370,3 +370,151 @@ class TestCatalogSearchErrors:
         import json
         body = json.loads(response["body"])
         assert "items" in body
+
+
+# ---------------------------------------------------------------------------
+# HIGH 1: Input validation on query params
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogSearchInputValidation:
+    """HIGH 1: Lambda rejects invalid or oversized query parameters."""
+
+    def test_keyword_too_long_returns_400(self, aws_mock):
+        """keyword longer than 256 chars returns 400."""
+        from catalog_search import handler
+
+        long_keyword = "a" * 257
+        event = _apigw_event({"keyword": long_keyword})
+        response = handler(event, None)
+
+        assert response["statusCode"] == 400
+        import json
+        body = json.loads(response["body"])
+        assert "error" in body
+
+    def test_domain_with_special_chars_returns_400(self, aws_mock):
+        """domain containing disallowed characters returns 400."""
+        from catalog_search import handler
+
+        event = _apigw_event({"domain": "sales; DROP TABLE"})
+        response = handler(event, None)
+
+        assert response["statusCode"] == 400
+
+    def test_tag_with_special_chars_returns_400(self, aws_mock):
+        """tag containing disallowed characters returns 400."""
+        from catalog_search import handler
+
+        event = _apigw_event({"tag": "<script>alert(1)</script>"})
+        response = handler(event, None)
+
+        assert response["statusCode"] == 400
+
+    def test_classification_too_long_returns_400(self, aws_mock):
+        """classification longer than 256 chars returns 400."""
+        from catalog_search import handler
+
+        long_val = "x" * 257
+        event = _apigw_event({"classification": long_val})
+        response = handler(event, None)
+
+        assert response["statusCode"] == 400
+
+    def test_valid_params_pass_validation(self, setup_tables):
+        """Valid lowercase params with allowed chars pass validation."""
+        from catalog_search import handler
+
+        event = _apigw_event({"domain": "sales"})
+        response = handler(event, None)
+
+        assert response["statusCode"] == 200
+
+
+# ---------------------------------------------------------------------------
+# HIGH 2: Result cap at 500 items
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogSearchResultCap:
+    """HIGH 2: keyword search results are capped at 500 items."""
+
+    def test_result_cap_constant_exists(self):
+        """_MAX_RESULTS constant is defined and equals 500."""
+        import catalog_search
+
+        assert hasattr(catalog_search, "_MAX_RESULTS")
+        assert catalog_search._MAX_RESULTS == 500
+
+    def test_results_sliced_to_max(self, aws_mock):
+        """handler slices results to _MAX_RESULTS before returning."""
+        from catalog_search import handler, _MAX_RESULTS
+        from unittest.mock import patch
+
+        # Return 600 fake items from _search_by_keyword
+        fake_items = [{"product_name": f"product_{i}", "domain": "sales"} for i in range(600)]
+
+        with patch("catalog_search._search_by_keyword", return_value=fake_items):
+            event = _apigw_event({"keyword": "product"})
+            response = handler(event, None)
+
+        assert response["statusCode"] == 200
+        import json
+        body = json.loads(response["body"])
+        assert len(body["items"]) == _MAX_RESULTS
+        assert body["count"] == _MAX_RESULTS
+
+
+# ---------------------------------------------------------------------------
+# HIGH 3: No CORS header in response
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogSearchNoCORS:
+    """HIGH 3: search responses must not include Access-Control-Allow-Origin."""
+
+    def test_no_cors_header_in_200_response(self, setup_tables):
+        """200 response does not include Access-Control-Allow-Origin header."""
+        from catalog_search import handler
+
+        event = _apigw_event({"domain": "sales"})
+        response = handler(event, None)
+
+        assert "Access-Control-Allow-Origin" not in response.get("headers", {})
+
+    def test_no_cors_header_in_400_response(self, aws_mock):
+        """400 response does not include Access-Control-Allow-Origin header."""
+        from catalog_search import handler
+
+        event = _apigw_event({})
+        response = handler(event, None)
+
+        assert "Access-Control-Allow-Origin" not in response.get("headers", {})
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM 1: DynamoDB error message not leaked
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogSearchErrorLeakage:
+    """MEDIUM 1: DynamoDB ClientError messages are not exposed in 500 responses."""
+
+    def test_dynamodb_error_not_leaked(self, aws_mock):
+        """500 response body is 'Internal server error', not the raw DynamoDB message."""
+        from catalog_search import handler
+        from unittest.mock import patch, MagicMock
+        from botocore.exceptions import ClientError
+
+        error_response = {"Error": {"Code": "InternalServerError", "Message": "Secret DB details"}}
+        client_error = ClientError(error_response, "Query")
+
+        with patch("catalog_search._search_by_domain", side_effect=client_error):
+            event = _apigw_event({"domain": "sales"})
+            response = handler(event, None)
+
+        assert response["statusCode"] == 500
+        import json
+        body = json.loads(response["body"])
+        assert "Secret DB details" not in body.get("error", "")
+        assert body.get("error") == "Internal server error"

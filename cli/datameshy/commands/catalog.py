@@ -9,6 +9,7 @@ Commands:
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -45,6 +46,21 @@ _HTTP_ERRORS: dict[int, str] = {
 # ---------------------------------------------------------------------------
 
 
+_API_URL_PATTERN = re.compile(
+    r"^https://[a-zA-Z0-9\-]+\.execute-api\.[a-zA-Z0-9\-]+\.amazonaws\.com"
+)
+
+
+def _validate_api_url(url: str) -> str:
+    """Raise BadParameter if *url* does not look like an API Gateway URL."""
+    if not _API_URL_PATTERN.match(url):
+        raise typer.BadParameter(
+            f"--api-url must match https://<id>.execute-api.<region>.amazonaws.com/... "
+            f"Got: '{url}'"
+        )
+    return url
+
+
 def _get_api_url(api_url: str | None) -> str:
     """Resolve the API Gateway base URL.
 
@@ -54,11 +70,15 @@ def _get_api_url(api_url: str | None) -> str:
       3. ``~/.datameshy/config`` profile file (``api_url`` key)
     """
     if api_url:
-        return api_url.rstrip("/")
+        resolved = api_url.rstrip("/")
+        _validate_api_url(resolved)
+        return resolved
 
     env_url = os.environ.get("DATAMESHY_API_URL")
     if env_url:
-        return env_url.rstrip("/")
+        resolved = env_url.rstrip("/")
+        _validate_api_url(resolved)
+        return resolved
 
     config_path = Path.home() / ".datameshy" / "config"
     if config_path.exists():
@@ -68,7 +88,9 @@ def _get_api_url(api_url: str | None) -> str:
         cfg.read(config_path)
         url = cfg.get("default", "api_url", fallback=None)
         if url:
-            return url.rstrip("/")
+            resolved = url.rstrip("/")
+            _validate_api_url(resolved)
+            return resolved
 
     console.print(
         "[red]API URL not configured.[/red]\n"
@@ -349,6 +371,21 @@ def catalog_describe(
         )
         raise typer.Exit(code=1)
 
+    # CRITICAL: validate each segment to prevent path traversal
+    _SEGMENT_RE = re.compile(r"^[a-z0-9_-]{1,128}$")
+    parts = product_path.split("/")
+    if len(parts) != 2:
+        raise typer.BadParameter(
+            f"Product path must be exactly <domain>/<product_name>. Got: '{product_path}'"
+        )
+    domain_seg, product_seg = parts
+    for seg_name, seg_val in (("domain", domain_seg), ("product_name", product_seg)):
+        if not _SEGMENT_RE.fullmatch(seg_val):
+            raise typer.BadParameter(
+                f"Invalid {seg_name} segment '{seg_val}'. "
+                "Must match ^[a-z0-9_-]{1,128}$."
+            )
+
     base_url = _get_api_url(api_url)
 
     try:
@@ -357,7 +394,7 @@ def catalog_describe(
         product = make_signed_request(
             session=session,
             method="GET",
-            url=f"{base_url}/catalog/{product_path}",
+            url=f"{base_url}/catalog/{domain_seg}/{product_seg}",
         )
 
         _render_product_detail(product)

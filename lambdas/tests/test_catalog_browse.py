@@ -284,10 +284,95 @@ class TestCatalogBrowseNoScan:
         body = json.loads(response["body"])
         assert isinstance(body, dict)
 
-    def test_response_has_cors_headers(self, setup_tables):
-        """Handler response includes CORS headers."""
+    def test_response_has_content_type_header(self, setup_tables):
+        """Handler response includes Content-Type header."""
         from catalog_browse import handler
 
         response = handler(_apigw_event(), None)
         headers = response.get("headers", {})
         assert "Content-Type" in headers
+
+    def test_no_cors_header(self, setup_tables):
+        """Handler response must NOT include Access-Control-Allow-Origin header."""
+        from catalog_browse import handler
+
+        response = handler(_apigw_event(), None)
+        headers = response.get("headers", {})
+        assert "Access-Control-Allow-Origin" not in headers
+
+
+# ---------------------------------------------------------------------------
+# HIGH 1: Input validation on query params
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogBrowseInputValidation:
+    """HIGH 1: browse Lambda rejects invalid or oversized query parameters."""
+
+    def test_domain_param_too_long_returns_400(self, aws_mock, dynamodb_client):
+        """domain query param longer than 256 chars returns 400."""
+        _create_products_table_with_gsis(dynamodb_client)
+        _create_domains_table(dynamodb_client)
+        from catalog_browse import handler
+
+        event = _apigw_event({"domain": "a" * 257})
+        response = handler(event, None)
+
+        assert response["statusCode"] == 400
+        body = json.loads(response["body"])
+        assert "error" in body
+
+    def test_domain_param_with_special_chars_returns_400(self, aws_mock, dynamodb_client):
+        """domain query param with SQL injection chars returns 400."""
+        _create_products_table_with_gsis(dynamodb_client)
+        _create_domains_table(dynamodb_client)
+        from catalog_browse import handler
+
+        event = _apigw_event({"domain": "'; DROP TABLE--"})
+        response = handler(event, None)
+
+        assert response["statusCode"] == 400
+
+    def test_keyword_param_with_special_chars_returns_400(self, aws_mock, dynamodb_client):
+        """keyword query param with disallowed chars returns 400."""
+        _create_products_table_with_gsis(dynamodb_client)
+        _create_domains_table(dynamodb_client)
+        from catalog_browse import handler
+
+        event = _apigw_event({"keyword": "<script>xss</script>"})
+        response = handler(event, None)
+
+        assert response["statusCode"] == 400
+
+    def test_no_query_params_returns_200(self, setup_tables):
+        """browse with no query params returns 200 normally."""
+        from catalog_browse import handler
+
+        response = handler(_apigw_event(), None)
+        assert response["statusCode"] == 200
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM 1: DynamoDB error message not leaked
+# ---------------------------------------------------------------------------
+
+
+class TestCatalogBrowseErrorLeakage:
+    """MEDIUM 1: DynamoDB ClientError messages are not exposed in 500 responses."""
+
+    def test_dynamodb_error_not_leaked(self, aws_mock):
+        """500 response body is 'Internal server error', not the raw DynamoDB message."""
+        from catalog_browse import handler
+        from unittest.mock import patch
+        from botocore.exceptions import ClientError
+
+        error_response = {"Error": {"Code": "InternalServerError", "Message": "Secret DB details"}}
+        client_error = ClientError(error_response, "Scan")
+
+        with patch("catalog_browse._get_all_domains", side_effect=client_error):
+            response = handler(_apigw_event(), None)
+
+        assert response["statusCode"] == 500
+        body = json.loads(response["body"])
+        assert "Secret DB details" not in body.get("error", "")
+        assert body.get("error") == "Internal server error"

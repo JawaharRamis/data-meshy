@@ -30,7 +30,7 @@ resource "aws_apigatewayv2_api" "mesh_api" {
   cors_configuration {
     allow_headers = ["content-type", "x-amz-date", "authorization", "x-api-key", "x-amz-security-token"]
     allow_methods = ["GET", "POST", "DELETE", "OPTIONS"]
-    allow_origins = ["*"]
+    allow_origins = []
     max_age       = 300
   }
 
@@ -46,6 +46,11 @@ resource "aws_apigatewayv2_stage" "mesh_api_default" {
   api_id      = aws_apigatewayv2_api.mesh_api.id
   name        = "$default"
   auto_deploy = true
+
+  default_route_settings {
+    throttling_burst_limit = 50
+    throttling_rate_limit  = 100
+  }
 
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.mesh_api_access_logs.arn
@@ -188,8 +193,20 @@ resource "aws_apigatewayv2_integration" "catalog_browse" {
   description            = "Catalog browse handler (Phase 3 Stream 1: catalog_browse Lambda)"
 }
 
+resource "aws_apigatewayv2_integration" "catalog_describe" {
+  count = var.catalog_describe_lambda_arn != "" ? 1 : 0
+
+  api_id                 = aws_apigatewayv2_api.mesh_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.catalog_describe_lambda_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+  timeout_milliseconds   = 29000
+  description            = "Catalog describe handler (Phase 3 Stream 1: catalog_describe Lambda)"
+}
+
 ###############################################################################
-# Catalog routes — GET /catalog/search and GET /catalog/browse
+# Catalog routes — GET /catalog/search, GET /catalog/browse, GET /catalog/{domain}/{product}
 ###############################################################################
 
 resource "aws_apigatewayv2_route" "get_catalog_search" {
@@ -204,6 +221,13 @@ resource "aws_apigatewayv2_route" "get_catalog_browse" {
   route_key          = "GET /catalog/browse"
   authorization_type = "AWS_IAM"
   target             = length(aws_apigatewayv2_integration.catalog_browse) > 0 ? "integrations/${aws_apigatewayv2_integration.catalog_browse[0].id}" : null
+}
+
+resource "aws_apigatewayv2_route" "get_catalog_describe" {
+  api_id             = aws_apigatewayv2_api.mesh_api.id
+  route_key          = "GET /catalog/{domain}/{product}"
+  authorization_type = "AWS_IAM"
+  target             = length(aws_apigatewayv2_integration.catalog_describe) > 0 ? "integrations/${aws_apigatewayv2_integration.catalog_describe[0].id}" : null
 }
 
 ###############################################################################
@@ -228,6 +252,16 @@ resource "aws_lambda_permission" "apigw_catalog_browse" {
   function_name = var.catalog_browse_lambda_arn
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/catalog/browse"
+}
+
+resource "aws_lambda_permission" "apigw_catalog_describe" {
+  count = var.catalog_describe_lambda_arn != "" ? 1 : 0
+
+  statement_id  = "AllowAPIGWInvokeCatalogDescribe"
+  action        = "lambda:InvokeFunction"
+  function_name = var.catalog_describe_lambda_arn
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/catalog/*/*"
 }
 
 resource "aws_lambda_permission" "apigw_subscription_create" {
