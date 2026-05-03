@@ -196,3 +196,28 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# ── Lifecycle variables (Phase 3 Stream 2) ────────────────────────────────────
+
+variable "product_deprecation_lambda_arn" {
+  description = "ARN of the product_deprecation Lambda (handles ProductDeprecated events). Leave empty to skip EventBridge target."
+  type        = string
+  default     = ""
+}
+
+variable "retirement_lambda_arn" {
+  description = "ARN of the retirement Lambda (triggered by EventBridge Scheduler at sunset_date). Required — Terraform plan fails if not set, preventing wildcard Lambda permissions."
+  type        = string
+}
+
+variable "rollback_glue_script_s3_path" {
+  description = "S3 path to the iceberg_rollback.py Glue script. Leave empty to skip Glue job creation."
+  type        = string
+  default     = ""
+}
+
+variable "mesh_subscriptions_table_name" {
+  description = "DynamoDB table name for mesh-subscriptions (from governance module output)."
+  type        = string
+  default     = "mesh-subscriptions"
+}
