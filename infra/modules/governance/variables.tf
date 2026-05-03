@@ -87,6 +87,26 @@ variable "subscription_lister_lambda_arn" {
   default     = ""
 }
 
+# ── Catalog API variables (Phase 3 Stream 1) ──────────────────────────────────
+
+variable "catalog_search_lambda_arn" {
+  description = "ARN of the catalog search Lambda (Phase 3 Stream 1). Empty string until deployed."
+  type        = string
+  default     = ""
+}
+
+variable "catalog_browse_lambda_arn" {
+  description = "ARN of the catalog browse Lambda (Phase 3 Stream 1). Empty string until deployed."
+  type        = string
+  default     = ""
+}
+
+variable "catalog_describe_lambda_arn" {
+  description = "ARN of the catalog describe Lambda (Phase 3 Stream 1). Empty string until deployed."
+  type        = string
+  default     = ""
+}
+
 locals {
   mandatory_tags = {
     Project     = "data-meshy"

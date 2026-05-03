@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from datameshy import __version__
-from datameshy.commands import domain, product, subscribe
+from datameshy.commands import catalog, domain, product, subscribe
 
 console = Console()
 
@@ -22,6 +22,7 @@ app = typer.Typer(
 )
 
 # Register sub-command groups
+app.add_typer(catalog.app, name="catalog", help="Discover data products in the mesh catalog (search, browse, describe).")
 app.add_typer(domain.app, name="domain", help="Manage mesh domains (onboard, list, status).")
 app.add_typer(product.app, name="product", help="Manage data products (create, refresh, status).")
 app.add_typer(subscribe.app, name="subscribe", help="Manage data product subscriptions (request, approve, revoke, list).")
