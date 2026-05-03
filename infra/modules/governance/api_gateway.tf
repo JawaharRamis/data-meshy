@@ -10,6 +10,10 @@
 #   POST   /subscriptions/{id}/approve   — approve a pending subscription
 #   POST   /subscriptions/{id}/revoke    — revoke an active subscription
 #
+# Routes added in Phase 3 (Stream 1 — catalog-cli):
+#   GET    /catalog/search               — search products by keyword/domain/tag/classification
+#   GET    /catalog/browse               — browse all products grouped by domain
+#
 # Lambda integration ARNs are passed in as variables — Stream 2 fills them.
 # When a Lambda ARN is empty (initial deploy), the route is created but the
 # integration points to a placeholder that returns 503 so `terraform plan`
@@ -156,8 +160,75 @@ resource "aws_apigatewayv2_route" "post_subscription_revoke" {
 }
 
 ###############################################################################
+# Catalog Lambda integrations (Phase 3 Stream 1)
+# catalog_search_lambda_arn and catalog_browse_lambda_arn added in variables.tf
+###############################################################################
+
+resource "aws_apigatewayv2_integration" "catalog_search" {
+  count = var.catalog_search_lambda_arn != "" ? 1 : 0
+
+  api_id                 = aws_apigatewayv2_api.mesh_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.catalog_search_lambda_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+  timeout_milliseconds   = 29000
+  description            = "Catalog search handler (Phase 3 Stream 1: catalog_search Lambda)"
+}
+
+resource "aws_apigatewayv2_integration" "catalog_browse" {
+  count = var.catalog_browse_lambda_arn != "" ? 1 : 0
+
+  api_id                 = aws_apigatewayv2_api.mesh_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = var.catalog_browse_lambda_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+  timeout_milliseconds   = 29000
+  description            = "Catalog browse handler (Phase 3 Stream 1: catalog_browse Lambda)"
+}
+
+###############################################################################
+# Catalog routes — GET /catalog/search and GET /catalog/browse
+###############################################################################
+
+resource "aws_apigatewayv2_route" "get_catalog_search" {
+  api_id             = aws_apigatewayv2_api.mesh_api.id
+  route_key          = "GET /catalog/search"
+  authorization_type = "AWS_IAM"
+  target             = length(aws_apigatewayv2_integration.catalog_search) > 0 ? "integrations/${aws_apigatewayv2_integration.catalog_search[0].id}" : null
+}
+
+resource "aws_apigatewayv2_route" "get_catalog_browse" {
+  api_id             = aws_apigatewayv2_api.mesh_api.id
+  route_key          = "GET /catalog/browse"
+  authorization_type = "AWS_IAM"
+  target             = length(aws_apigatewayv2_integration.catalog_browse) > 0 ? "integrations/${aws_apigatewayv2_integration.catalog_browse[0].id}" : null
+}
+
+###############################################################################
 # Lambda permissions — allow APIGW to invoke each Lambda
 ###############################################################################
+
+resource "aws_lambda_permission" "apigw_catalog_search" {
+  count = var.catalog_search_lambda_arn != "" ? 1 : 0
+
+  statement_id  = "AllowAPIGWInvokeCatalogSearch"
+  action        = "lambda:InvokeFunction"
+  function_name = var.catalog_search_lambda_arn
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/catalog/search"
+}
+
+resource "aws_lambda_permission" "apigw_catalog_browse" {
+  count = var.catalog_browse_lambda_arn != "" ? 1 : 0
+
+  statement_id  = "AllowAPIGWInvokeCatalogBrowse"
+  action        = "lambda:InvokeFunction"
+  function_name = var.catalog_browse_lambda_arn
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/catalog/browse"
+}
 
 resource "aws_lambda_permission" "apigw_subscription_create" {
   count = var.subscription_provisioner_lambda_arn != "" ? 1 : 0

@@ -130,10 +130,27 @@ def ddb_resource(aws_mock):
     return boto3.resource("dynamodb", region_name="us-east-1")
 
 
+def _create_domains_table(dynamodb_client):
+    dynamodb_client.create_table(
+        TableName="mesh-domains",
+        KeySchema=[{"AttributeName": "domain_name", "KeyType": "HASH"}],
+        AttributeDefinitions=[{"AttributeName": "domain_name", "AttributeType": "S"}],
+        BillingMode="PAY_PER_REQUEST",
+    )
+
+
+def _seed_domains(ddb_resource):
+    table = ddb_resource.Table("mesh-domains")
+    for domain_name in ("sales", "finance"):
+        table.put_item(Item={"domain_name": domain_name, "account_id": "111111111111", "status": "ACTIVE"})
+
+
 @pytest.fixture
 def setup_tables(dynamodb_client, ddb_resource):
     _create_products_table_with_gsis(dynamodb_client)
+    _create_domains_table(dynamodb_client)
     _seed_products(ddb_resource)
+    _seed_domains(ddb_resource)
     return ddb_resource
 
 
