@@ -1,0 +1,75 @@
+# product.yaml — revenue_daily_v1 data product
+# Domain: sales
+# Schema version: 1
+# DEPRECATED: superseded by revenue_daily_v2 (breaking rename: revenue -> gross_revenue)
+
+product:
+  name: revenue_daily_v1
+  domain: sales
+  description: "Daily revenue aggregated by region and product line (v1 — deprecated)"
+  owner: sales-data-team@company.com
+  contact_channel: "#sales-data-support"
+
+schema_version: 1
+
+deprecated: true
+sunset_date: "2026-09-01"
+superseded_by: revenue_daily_v2
+
+schema:
+  format: iceberg
+  columns:
+    - name: date
+      type: date
+      description: "Reporting date"
+      pii: false
+      nullable: false
+    - name: region
+      type: string
+      description: "Sales region"
+      pii: false
+      nullable: true
+    - name: product_line
+      type: string
+      description: "Product line name"
+      pii: false
+      nullable: true
+    - name: revenue
+      type: "decimal(12,2)"
+      description: "Total revenue in USD (deprecated column — use gross_revenue in v2)"
+      pii: false
+      nullable: true
+    - name: units_sold
+      type: long
+      description: "Total units sold"
+      pii: false
+      nullable: true
+  partition_by:
+    - column: date
+      transform: month
+
+quality:
+  rules:
+    - name: date_complete
+      rule: "IsComplete 'date'"
+      threshold: 1.0
+    - name: revenue_positive
+      rule: "ColumnValues 'revenue' > 0"
+  minimum_quality_score: 95
+
+sla:
+  refresh_frequency: daily
+  freshness_target: "24 hours"
+  availability: "99.5%"
+
+tags:
+  - sales
+  - revenue
+  - deprecated
+
+classification: internal
+
+lineage:
+  sources:
+    - system: "sales-warehouse"
+      table: "public.daily_revenue"

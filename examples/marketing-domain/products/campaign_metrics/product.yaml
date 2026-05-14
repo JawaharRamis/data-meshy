@@ -1,0 +1,75 @@
+# product.yaml — campaign_metrics data product
+# Domain: marketing
+# Schema version: 1
+
+product:
+  name: campaign_metrics
+  domain: marketing
+  description: "Daily aggregated campaign performance metrics by channel"
+  owner: marketing-data-team@company.com
+  contact_channel: "#marketing-data-support"
+
+schema_version: 1
+
+schema:
+  format: iceberg
+  columns:
+    - name: campaign_id
+      type: string
+      description: "Unique campaign identifier"
+      pii: false
+      nullable: false
+    - name: channel
+      type: string
+      description: "Marketing channel (e.g. email, paid-search, social)"
+      pii: false
+      nullable: true
+    - name: impressions
+      type: long
+      description: "Total ad impressions for the campaign on the given day"
+      pii: false
+      nullable: true
+    - name: clicks
+      type: long
+      description: "Total clicks on the campaign on the given day"
+      pii: false
+      nullable: true
+    - name: spend
+      type: "decimal(10,2)"
+      description: "Total spend in USD for the campaign on the given day"
+      pii: false
+      nullable: true
+    - name: conversion_rate
+      type: double
+      description: "Clicks-to-conversion ratio for the day"
+      pii: false
+      nullable: true
+  partition_by:
+    - column: channel
+      transform: identity
+
+quality:
+  rules:
+    - name: campaign_id_complete
+      rule: "IsComplete 'campaign_id'"
+      threshold: 1.0
+    - name: spend_positive
+      rule: "ColumnValues 'spend' > 0"
+  minimum_quality_score: 95
+
+sla:
+  refresh_frequency: daily
+  freshness_target: "24 hours"
+  availability: "99.5%"
+
+tags:
+  - marketing
+  - campaign
+  - performance
+
+classification: internal
+
+lineage:
+  sources:
+    - system: "ads-platform-api"
+      endpoint: "/campaigns/metrics/daily"

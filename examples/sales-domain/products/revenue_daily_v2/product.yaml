@@ -1,0 +1,79 @@
+# product.yaml — revenue_daily_v2 data product
+# Domain: sales
+# Schema version: 2
+# Breaking change from v1: 'revenue' renamed to 'gross_revenue'; 'net_revenue' added
+
+product:
+  name: revenue_daily_v2
+  domain: sales
+  description: "Daily revenue aggregated by region and product line (v2 — breaking schema change from v1)"
+  owner: sales-data-team@company.com
+  contact_channel: "#sales-data-support"
+
+schema_version: 2
+
+schema:
+  format: iceberg
+  columns:
+    - name: date
+      type: date
+      description: "Reporting date"
+      pii: false
+      nullable: false
+    - name: region
+      type: string
+      description: "Sales region"
+      pii: false
+      nullable: true
+    - name: product_line
+      type: string
+      description: "Product line name"
+      pii: false
+      nullable: true
+    - name: gross_revenue
+      type: "decimal(12,2)"
+      description: "Total gross revenue in USD (renamed from 'revenue' in v1)"
+      pii: false
+      nullable: true
+    - name: units_sold
+      type: long
+      description: "Total units sold"
+      pii: false
+      nullable: true
+    - name: net_revenue
+      type: "decimal(12,2)"
+      description: "Net revenue after discounts and returns (new in v2)"
+      pii: false
+      nullable: true
+  partition_by:
+    - column: date
+      transform: month
+
+quality:
+  rules:
+    - name: date_complete
+      rule: "IsComplete 'date'"
+      threshold: 1.0
+    - name: gross_revenue_positive
+      rule: "ColumnValues 'gross_revenue' > 0"
+    - name: net_revenue_positive
+      rule: "ColumnValues 'net_revenue' > 0"
+  minimum_quality_score: 95
+
+sla:
+  refresh_frequency: daily
+  freshness_target: "24 hours"
+  availability: "99.5%"
+
+tags:
+  - sales
+  - revenue
+
+classification: internal
+
+lineage:
+  sources:
+    - system: "sales-warehouse"
+      table: "public.daily_revenue"
+    - system: "returns-service"
+      endpoint: "/returns/daily-summary"
