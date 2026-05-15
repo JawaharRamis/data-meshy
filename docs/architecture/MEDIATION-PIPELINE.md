@@ -11,7 +11,7 @@
 
 Every data product follows the medallion pattern: Raw (Bronze) -> Silver (Validated) -> Gold (Data Product). A Step Functions state machine orchestrates the full flow, including lock acquisition, schema validation, quality checks, catalog publishing, and post-publish Iceberg maintenance.
 
-The state machine is defined in `templates/step_functions/medallion_pipeline.asl.json`. Each domain instantiates its own copy via the `data-product` Terraform module (`infra/modules/data-product/`).
+The state machine is defined in the [template repo](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/medallion_pipeline.asl.json). Each domain instantiates its own copy via the `data-product` Terraform module (`infra/modules/data-product/`).
 
 ## Flow Diagram
 
@@ -94,7 +94,7 @@ On ANY unhandled error (raw/silver/gold/schema/quality/publish):
 
 ## State Machine Configuration
 
-Source: `templates/step_functions/medallion_pipeline.asl.json`
+Source: [data-meshy-product-template/step_functions/medallion_pipeline.asl.json](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/medallion_pipeline.asl.json)
 
 | Parameter | Value | Where Defined |
 |---|---|---|
@@ -131,7 +131,7 @@ Arguments passed to the Glue job:
 - `--job-bookmark-option`: `job-bookmark-enable`
 - `--enable-job-insights`: `true` (Glue job observability)
 
-Template: `templates/glue_jobs/raw_ingestion.py`
+Template: [data-meshy-product-template/glue_jobs/raw_ingestion.py](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/raw_ingestion.py)
 
 ### SilverTransform
 
@@ -139,7 +139,7 @@ Runs the `silver_transform` Glue job. Reads from the raw Iceberg table, validate
 
 Arguments: `--domain`, `--product_name`, `--raw_bucket`, `--silver_bucket`, `--raw_db`, `--silver_db`, `--table_name`, `--quality_ruleset_name`
 
-Template: `templates/glue_jobs/silver_transform.py`
+Template: [data-meshy-product-template/glue_jobs/silver_transform.py](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/silver_transform.py)
 
 ### GoldAggregate
 
@@ -147,7 +147,7 @@ Runs the `gold_aggregate` Glue job. Applies business logic, enrichment, and aggr
 
 Arguments: `--domain`, `--product_name`, `--silver_bucket`, `--gold_bucket`, `--silver_db`, `--gold_db`, `--table_name`
 
-Template: `templates/glue_jobs/gold_aggregate.py`
+Template: [data-meshy-product-template/glue_jobs/gold_aggregate.py](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/gold_aggregate.py)
 
 ### SchemaValidate
 
@@ -193,7 +193,7 @@ Runs after lock release so consumers are not blocked during compaction. This is 
 
 Parameters: `--target_file_size_mb: 128`, `--snapshot_retention_days: 7`
 
-Template: `templates/glue_jobs/iceberg_maintenance.py`
+Template: [data-meshy-product-template/glue_jobs/iceberg_maintenance.py](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/iceberg_maintenance.py)
 
 ## Concurrent Run Protection
 
@@ -262,11 +262,11 @@ The Step Functions state machine expects this input structure (assembled by the 
 
 | File | Purpose |
 |---|---|
-| `templates/step_functions/medallion_pipeline.asl.json` | Full ASL definition (439 lines) |
-| `templates/glue_jobs/raw_ingestion.py` | Bronze layer Glue job template |
-| `templates/glue_jobs/silver_transform.py` | Silver layer Glue job template |
-| `templates/glue_jobs/gold_aggregate.py` | Gold layer Glue job template |
-| `templates/glue_jobs/iceberg_maintenance.py` | Post-publish OPTIMIZE + VACUUM |
+| [step_functions/medallion_pipeline.asl.json](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/medallion_pipeline.asl.json) | Full ASL definition (template repo) |
+| [glue_jobs/raw_ingestion.py](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/raw_ingestion.py) | Bronze layer Glue job template (template repo) |
+| [glue_jobs/silver_transform.py](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/silver_transform.py) | Silver layer Glue job template (template repo) |
+| [glue_jobs/gold_aggregate.py](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/gold_aggregate.py) | Gold layer Glue job template (template repo) |
+| [glue_jobs/iceberg_maintenance.py](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/iceberg_maintenance.py) | Post-publish OPTIMIZE + VACUUM (template repo) |
 | `infra/modules/governance/dynamodb.tf:255` | `mesh-pipeline-locks` table definition |
 | `infra/modules/data-product/outputs.tf:83` | State machine ARN output |
 | `plan/ARCHITECTURE.md:532` | Architecture spec for the medallion pipeline |

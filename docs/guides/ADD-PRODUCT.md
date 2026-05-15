@@ -143,9 +143,11 @@ The template Glue jobs are copied to S3 but need customization for your specific
 ```bash
 mkdir -p examples/example-domain-repo/products/my_new_product/
 
-cp templates/glue_jobs/raw_ingestion.py examples/example-domain-repo/products/my_new_product/
-cp templates/glue_jobs/silver_transform.py examples/example-domain-repo/products/my_new_product/
-cp templates/glue_jobs/gold_aggregate.py examples/example-domain-repo/products/my_new_product/
+# Glue job templates are now in the template repo. Clone or download them:
+# https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/
+gh api repos/JawaharRamis/data-meshy-product-template/contents/glue_jobs/raw_ingestion.py --jq '.content' | base64 -d > examples/example-domain-repo/products/my_new_product/raw_ingestion.py
+gh api repos/JawaharRamis/data-meshy-product-template/contents/glue_jobs/silver_transform.py --jq '.content' | base64 -d > examples/example-domain-repo/products/my_new_product/silver_transform.py
+gh api repos/JawaharRamis/data-meshy-product-template/contents/glue_jobs/gold_aggregate.py --jq '.content' | base64 -d > examples/example-domain-repo/products/my_new_product/gold_aggregate.py
 ```
 
 See the [Customize Pipeline Guide](CUSTOMIZE-PIPELINE.md) for detailed instructions on modifying each job.

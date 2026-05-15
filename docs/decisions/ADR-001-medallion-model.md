@@ -80,5 +80,5 @@ We adopt a three-layer medallion pattern -- Raw (Bronze), Silver (Validated), an
 - [Architecture: Medallion Pipeline](../../plan/ARCHITECTURE.md) -- full pipeline diagram and state machine details
 - [Architecture: ADR-009-A](../../plan/ARCHITECTURE.md) -- medallion as paved road, not mandate
 - [Architecture: ADR-007](../../plan/ARCHITECTURE.md) -- Iceberg on Glue Data Catalog
-- [Pipeline ASL](../../templates/step_functions/medallion_pipeline.asl.json) -- Step Functions state machine definition
-- [Glue job templates](../../templates/glue_jobs/) -- raw_ingestion, silver_transform, gold_aggregate, iceberg_maintenance
+- [Pipeline ASL](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/medallion_pipeline.asl.json) -- Step Functions state machine definition (moved to template repo in Phase 5)
+- [Glue job templates](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/) -- raw_ingestion, silver_transform, gold_aggregate, iceberg_maintenance (moved to template repo in Phase 5)

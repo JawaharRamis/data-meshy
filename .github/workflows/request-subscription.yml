@@ -1,0 +1,605 @@
+name: Request Data Product Subscription
+
+# Triggered by a consumer domain team to request access to a producer's data product.
+# Replaces the `datameshy subscribe` CLI command.
+#
+# Flow:
+#   1. Validate  -- verify both producer and consumer are registered in domains/*.yaml
+#   2. Request   -- write PENDING record to mesh-subscriptions DynamoDB; open GitHub Issue
+#                   in the producer DP repo with request details and approval gate URL
+#   3. Provision -- pauses at `subscription-approval` environment gate (required reviewer);
+#                   on approval, calls governance API to provision LF + KMS + resource link;
+#                   updates DynamoDB record to ACTIVE and notifies both repos
+#
+# Setup notes (one-time, per repo):
+#   - Create a GitHub environment named `subscription-approval` in this repo's settings.
+#     Add DP domain owners (or a GitHub team) as required reviewers.
+#   - Add secrets: AWS_ROLE_ARN, MESH_API_ENDPOINT, ORG_PAT (org-scoped PAT for
+#     opening issues in external repos).
+
+on:
+  workflow_dispatch:
+    inputs:
+      producer_domain:
+        description: "Producer domain name (must exist in domains/*.yaml)"
+        type: string
+        required: true
+      product_name:
+        description: "Data product name to subscribe to"
+        type: string
+        required: true
+      consumer_domain:
+        description: "Consumer domain name (must exist in domains/*.yaml)"
+        type: string
+        required: true
+      consumer_repo:
+        description: "Consumer domain repo slug (org/repo) for notifications"
+        type: string
+        required: true
+      justification:
+        description: "Business justification for access request"
+        type: string
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Validate -- verify both domains are registered
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate Domains (gate)
+    runs-on: ubuntu-latest
+
+    outputs:
+      producer_github_repo: ${{ steps.read-domains.outputs.producer_github_repo }}
+      producer_account_id: ${{ steps.read-domains.outputs.producer_account_id }}
+      consumer_account_id: ${{ steps.read-domains.outputs.consumer_account_id }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: main
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
+
+      - name: Read and validate domain registry entries
+        id: read-domains
+        env:
+          PRODUCER_DOMAIN: ${{ inputs.producer_domain }}
+          CONSUMER_DOMAIN: ${{ inputs.consumer_domain }}
+        run: |
+          python - <<'PYEOF'
+          import os
+          import sys
+          from pathlib import Path
+          import yaml
+
+          producer_domain = os.environ["PRODUCER_DOMAIN"]
+          consumer_domain = os.environ["CONSUMER_DOMAIN"]
+
+          def load_domain(domain_name):
+              path = Path(f"domains/{domain_name}.yaml")
+              if not path.exists():
+                  print(
+                      f"ERROR: Domain '{domain_name}' is not registered in the mesh. "
+                      f"Contact the platform team to run onboard-domain.yml first.",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+              with open(path) as f:
+                  return yaml.safe_load(f)
+
+          producer = load_domain(producer_domain)
+          consumer = load_domain(consumer_domain)
+
+          producer_github_repo = producer.get("github_repo", "")
+          if not producer_github_repo:
+              print(
+                  f"ERROR: domains/{producer_domain}.yaml is missing 'github_repo' field.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          producer_account_id = producer.get("account_id", "")
+          consumer_account_id = consumer.get("account_id", "")
+
+          print(f"Producer domain validated: {producer_domain} ({producer_github_repo})")
+          print(f"Consumer domain validated: {consumer_domain}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"producer_github_repo={producer_github_repo}\n")
+              out.write(f"producer_account_id={producer_account_id}\n")
+              out.write(f"consumer_account_id={consumer_account_id}\n")
+          PYEOF
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Request -- write PENDING record; open issue in producer DP repo
+  # ---------------------------------------------------------------------------
+  request:
+    name: Write PENDING Record and Open Producer Issue
+    runs-on: ubuntu-latest
+    needs: validate
+
+    outputs:
+      producer_issue_url: ${{ steps.open-issue.outputs.issue_url }}
+      producer_issue_number: ${{ steps.open-issue.outputs.issue_number }}
+      requested_at: ${{ steps.write-pending.outputs.requested_at }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      GH_TOKEN: ${{ secrets.ORG_PAT }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: main
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: MeshSubRequest-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Write PENDING subscription record to DynamoDB
+        id: write-pending
+        env:
+          PRODUCER_DOMAIN: ${{ inputs.producer_domain }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          CONSUMER_DOMAIN: ${{ inputs.consumer_domain }}
+          CONSUMER_REPO: ${{ inputs.consumer_repo }}
+          CONSUMER_ACCOUNT_ID: ${{ needs.validate.outputs.consumer_account_id }}
+          JUSTIFICATION: ${{ inputs.justification }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PYEOF'
+          import datetime
+          import json
+          import os
+          import sys
+          import boto3
+          from botocore.exceptions import ClientError
+
+          producer_domain = os.environ["PRODUCER_DOMAIN"]
+          product_name = os.environ["PRODUCT_NAME"]
+          consumer_domain = os.environ["CONSUMER_DOMAIN"]
+          consumer_repo = os.environ["CONSUMER_REPO"]
+          consumer_account_id = os.environ["CONSUMER_ACCOUNT_ID"]
+          justification = os.environ["JUSTIFICATION"]
+          run_url = os.environ["RUN_URL"]
+
+          product_id = f"{producer_domain}#{product_name}"
+          requested_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+          table = dynamodb.Table("mesh-subscriptions")
+
+          item = {
+              "product_id": product_id,
+              "subscriber_account_id": consumer_account_id,
+              "status": "PENDING",
+              "consumer_domain": consumer_domain,
+              "consumer_repo": consumer_repo,
+              "justification": justification,
+              "requested_at": requested_at,
+              "workflow_run_url": run_url,
+              "requested_by": os.environ.get("GITHUB_ACTOR", "unknown"),
+          }
+
+          try:
+              table.put_item(Item=item)
+              print(f"PENDING record written: product_id={product_id}")
+          except ClientError as e:
+              print(f"ERROR: Failed to write PENDING record: {e}", file=sys.stderr)
+              sys.exit(1)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"requested_at={requested_at}\n")
+          PYEOF
+
+      - name: Open subscription request issue in producer DP repo
+        id: open-issue
+        env:
+          PRODUCER_GITHUB_REPO: ${{ needs.validate.outputs.producer_github_repo }}
+          PRODUCER_DOMAIN: ${{ inputs.producer_domain }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          CONSUMER_DOMAIN: ${{ inputs.consumer_domain }}
+          CONSUMER_REPO: ${{ inputs.consumer_repo }}
+          JUSTIFICATION: ${{ inputs.justification }}
+          APPROVAL_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REQUESTED_AT: ${{ steps.write-pending.outputs.requested_at }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python - <<'PYEOF'
+          import os
+          import subprocess
+          import tempfile
+
+          producer_github_repo = os.environ["PRODUCER_GITHUB_REPO"]
+          producer_domain = os.environ["PRODUCER_DOMAIN"]
+          product_name = os.environ["PRODUCT_NAME"]
+          consumer_domain = os.environ["CONSUMER_DOMAIN"]
+          consumer_repo = os.environ["CONSUMER_REPO"]
+          justification = os.environ["JUSTIFICATION"]
+          approval_url = os.environ["APPROVAL_URL"]
+          requested_at = os.environ["REQUESTED_AT"]
+          gh_actor = os.environ["GH_ACTOR"]
+          gh_run_id = os.environ["GH_RUN_ID"]
+          gh_repo = os.environ["GH_REPO"]
+
+          title = f"Subscription request: {consumer_domain} to {product_name}"
+
+          lines = [
+              "## Subscription request",
+              "",
+              "| Field | Value |",
+              "|---|---|",
+              f"| **Producer domain** | `{producer_domain}` |",
+              f"| **Product name** | `{product_name}` |",
+              f"| **Consumer domain** | `{consumer_domain}` |",
+              f"| **Consumer repo** | `{consumer_repo}` |",
+              f"| **Requested by** | @{gh_actor} |",
+              f"| **Requested at** | {requested_at} |",
+              "",
+              "## Justification",
+              "",
+              justification,
+              "",
+              "## Approval",
+              "",
+              "To **approve** this subscription, visit the workflow approval gate and click **Approve**:",
+              "",
+              approval_url,
+              "",
+              "Approving will:",
+              "1. Provision Lake Formation permissions for the consumer account",
+              "2. Grant KMS key access to the consumer account",
+              "3. Create a Glue resource link in the consumer account",
+              "4. Update the subscription record to `ACTIVE`",
+              "5. Open a tracking issue in the consumer repo",
+              "",
+              "To **reject**, click **Reject** at the same URL and close this issue.",
+              "",
+              f"*Generated by [request-subscription.yml](https://github.com/{gh_repo}/actions/workflows/request-subscription.yml) -- run {gh_run_id}*",
+          ]
+          body = "\n".join(lines)
+
+          with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+              f.write(body)
+              body_file = f.name
+
+          result = subprocess.run(
+              ["gh", "issue", "create", "--repo", producer_github_repo,
+               "--title", title, "--body-file", body_file],
+              capture_output=True, text=True, check=True,
+          )
+          issue_url = result.stdout.strip()
+          issue_number = issue_url.split("/")[-1] if issue_url else ""
+
+          print(f"Subscription request issue opened: {issue_url}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"issue_url={issue_url}\n")
+              out.write(f"issue_number={issue_number}\n")
+          PYEOF
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Provision -- waits for approval gate, then provisions access
+  # ---------------------------------------------------------------------------
+  provision:
+    name: Provision Subscription (post-approval)
+    runs-on: ubuntu-latest
+    needs: [validate, request]
+    # TODO: Create the `subscription-approval` environment in this repo's settings
+    # (Settings -> Environments -> New environment -> Add required reviewers).
+    # Add the DP domain owner team as a required reviewer so they approve/reject.
+    environment: subscription-approval
+
+    permissions:
+      id-token: write
+      contents: read
+      issues: write
+
+    env:
+      GH_TOKEN: ${{ secrets.ORG_PAT }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: main
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: MeshSubProvision-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Provision subscription via governance API (SigV4)
+        id: provision-api
+        env:
+          MESH_API_ENDPOINT: ${{ secrets.MESH_API_ENDPOINT }}
+          PRODUCER_DOMAIN: ${{ inputs.producer_domain }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          CONSUMER_DOMAIN: ${{ inputs.consumer_domain }}
+          CONSUMER_REPO: ${{ inputs.consumer_repo }}
+          CONSUMER_ACCOUNT_ID: ${{ needs.validate.outputs.consumer_account_id }}
+          PRODUCER_ACCOUNT_ID: ${{ needs.validate.outputs.producer_account_id }}
+          REQUESTED_AT: ${{ needs.request.outputs.requested_at }}
+          JUSTIFICATION: ${{ inputs.justification }}
+        run: |
+          python - <<'PYEOF'
+          import json
+          import os
+          import sys
+          import urllib.request
+          import botocore.session
+          from botocore.auth import SigV4Auth
+          from botocore.awsrequest import AWSRequest
+
+          endpoint = os.environ["MESH_API_ENDPOINT"]
+          producer_domain = os.environ["PRODUCER_DOMAIN"]
+          product_name = os.environ["PRODUCT_NAME"]
+          consumer_domain = os.environ["CONSUMER_DOMAIN"]
+          consumer_repo = os.environ["CONSUMER_REPO"]
+          consumer_account_id = os.environ["CONSUMER_ACCOUNT_ID"]
+          producer_account_id = os.environ["PRODUCER_ACCOUNT_ID"]
+          requested_at = os.environ["REQUESTED_AT"]
+          justification = os.environ["JUSTIFICATION"]
+
+          product_id = f"{producer_domain}#{product_name}"
+
+          payload = {
+              "product_id": product_id,
+              "producer_domain": producer_domain,
+              "product_name": product_name,
+              "consumer_domain": consumer_domain,
+              "consumer_repo": consumer_repo,
+              "consumer_account_id": consumer_account_id,
+              "producer_account_id": producer_account_id,
+              "requested_at": requested_at,
+              "justification": justification,
+          }
+          body = json.dumps(payload).encode("utf-8")
+
+          url = f"{endpoint}/subscriptions"
+
+          session = botocore.session.get_session()
+          credentials = session.get_credentials().get_frozen_credentials()
+          region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+
+          request = AWSRequest(
+              method="POST",
+              url=url,
+              data=body,
+              headers={"Content-Type": "application/json"},
+          )
+          SigV4Auth(credentials, "execute-api", region).add_auth(request)
+
+          prepared = request.prepare()
+          req = urllib.request.Request(
+              prepared.url,
+              data=body,
+              headers=dict(prepared.headers),
+              method="POST",
+          )
+
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  response_body = json.loads(resp.read())
+                  print(f"Subscription provisioned: {response_body}")
+          except urllib.error.HTTPError as e:
+              error_body = e.read().decode("utf-8", errors="replace")
+              print(f"ERROR: Governance API returned {e.code}: {error_body}", file=sys.stderr)
+              sys.exit(1)
+          PYEOF
+
+      - name: Update subscription record to ACTIVE
+        env:
+          PRODUCER_DOMAIN: ${{ inputs.producer_domain }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          CONSUMER_ACCOUNT_ID: ${{ needs.validate.outputs.consumer_account_id }}
+        run: |
+          python - <<'PYEOF'
+          import datetime
+          import os
+          import sys
+          import boto3
+          from botocore.exceptions import ClientError
+
+          producer_domain = os.environ["PRODUCER_DOMAIN"]
+          product_name = os.environ["PRODUCT_NAME"]
+          consumer_account_id = os.environ["CONSUMER_ACCOUNT_ID"]
+
+          product_id = f"{producer_domain}#{product_name}"
+          activated_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+          table = dynamodb.Table("mesh-subscriptions")
+
+          try:
+              table.update_item(
+                  Key={
+                      "product_id": product_id,
+                      "subscriber_account_id": consumer_account_id,
+                  },
+                  UpdateExpression="SET #s = :active, activated_at = :now",
+                  ExpressionAttributeNames={"#s": "status"},
+                  ExpressionAttributeValues={
+                      ":active": "ACTIVE",
+                      ":now": activated_at,
+                  },
+              )
+              print(f"Subscription record updated to ACTIVE: product_id={product_id}")
+          except ClientError as e:
+              print(f"ERROR: Failed to update subscription record: {e}", file=sys.stderr)
+              sys.exit(1)
+          PYEOF
+
+      - name: Comment on producer issue (approved)
+        env:
+          PRODUCER_GITHUB_REPO: ${{ needs.validate.outputs.producer_github_repo }}
+          PRODUCER_ISSUE_NUMBER: ${{ needs.request.outputs.producer_issue_number }}
+          CONSUMER_DOMAIN: ${{ inputs.consumer_domain }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          GH_RUN_ID: ${{ github.run_id }}
+        run: |
+          gh issue comment "${PRODUCER_ISSUE_NUMBER}" \
+            --repo "${PRODUCER_GITHUB_REPO}" \
+            --body "Subscription approved and provisioned. Consumer domain ${CONSUMER_DOMAIN} now has access to ${PRODUCT_NAME}. Lake Formation, KMS, and Glue resource link have been configured. Run ID: ${GH_RUN_ID}."
+          echo "Commented on producer issue #${PRODUCER_ISSUE_NUMBER}"
+
+      - name: Open tracking issue in consumer repo
+        env:
+          CONSUMER_REPO: ${{ inputs.consumer_repo }}
+          PRODUCER_DOMAIN: ${{ inputs.producer_domain }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          PRODUCER_GITHUB_REPO: ${{ needs.validate.outputs.producer_github_repo }}
+          PRODUCER_ISSUE_URL: ${{ needs.request.outputs.producer_issue_url }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python - <<'PYEOF'
+          import os
+          import subprocess
+          import tempfile
+          import datetime
+
+          consumer_repo = os.environ["CONSUMER_REPO"]
+          producer_domain = os.environ["PRODUCER_DOMAIN"]
+          product_name = os.environ["PRODUCT_NAME"]
+          producer_github_repo = os.environ["PRODUCER_GITHUB_REPO"]
+          producer_issue_url = os.environ["PRODUCER_ISSUE_URL"]
+          gh_run_id = os.environ["GH_RUN_ID"]
+          gh_repo = os.environ["GH_REPO"]
+          approved_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          title = f"Subscription active: {producer_domain}/{product_name}"
+
+          lines = [
+              "## Subscription activated",
+              "",
+              f"Your subscription to **{producer_domain}/{product_name}** has been approved and provisioned.",
+              "",
+              "| Field | Value |",
+              "|---|---|",
+              f"| **Producer domain** | `{producer_domain}` |",
+              f"| **Product name** | `{product_name}` |",
+              f"| **Approved at** | {approved_at} |",
+              f"| **Producer repo** | `{producer_github_repo}` |",
+              f"| **Producer issue** | {producer_issue_url} |",
+              "",
+              "## What's been provisioned",
+              "",
+              "- Lake Formation read permissions granted to your account on the gold table",
+              "- KMS key grant created so your account can decrypt the data",
+              "- Glue resource link created in your account pointing to the producer gold table",
+              "",
+              "## Next steps",
+              "",
+              "Query the data product via Athena using the Glue resource link in your account.",
+              "",
+              f"*Generated by [request-subscription.yml](https://github.com/{gh_repo}/actions/workflows/request-subscription.yml) -- run {gh_run_id}*",
+          ]
+          body = "\n".join(lines)
+
+          with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+              f.write(body)
+              body_file = f.name
+
+          subprocess.run(
+              ["gh", "issue", "create", "--repo", consumer_repo,
+               "--title", title, "--body-file", body_file],
+              check=True,
+          )
+          print(f"Tracking issue opened in {consumer_repo}")
+          PYEOF
+
+      # -----------------------------------------------------------------------
+      # Rollback on provisioning failure
+      # -----------------------------------------------------------------------
+      - name: Rollback -- update subscription record to FAILED
+        if: failure() && steps.provision-api.outcome == 'failure'
+        continue-on-error: true
+        env:
+          PRODUCER_DOMAIN: ${{ inputs.producer_domain }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          CONSUMER_ACCOUNT_ID: ${{ needs.validate.outputs.consumer_account_id }}
+        run: |
+          python - <<'PYEOF'
+          import datetime
+          import os
+          import boto3
+
+          producer_domain = os.environ["PRODUCER_DOMAIN"]
+          product_name = os.environ["PRODUCT_NAME"]
+          consumer_account_id = os.environ["CONSUMER_ACCOUNT_ID"]
+
+          product_id = f"{producer_domain}#{product_name}"
+          failed_at = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+          table = dynamodb.Table("mesh-subscriptions")
+
+          try:
+              table.update_item(
+                  Key={
+                      "product_id": product_id,
+                      "subscriber_account_id": consumer_account_id,
+                  },
+                  UpdateExpression="SET #s = :failed, failed_at = :now",
+                  ExpressionAttributeNames={"#s": "status"},
+                  ExpressionAttributeValues={
+                      ":failed": "FAILED",
+                      ":now": failed_at,
+                  },
+              )
+              print(f"Subscription record updated to FAILED: product_id={product_id}")
+          except Exception as e:
+              print(f"WARNING: Could not update subscription record to FAILED: {e}")
+          PYEOF
+
+      - name: Rollback -- notify producer repo of failure
+        if: failure()
+        continue-on-error: true
+        env:
+          PRODUCER_GITHUB_REPO: ${{ needs.validate.outputs.producer_github_repo }}
+          PRODUCER_ISSUE_NUMBER: ${{ needs.request.outputs.producer_issue_number }}
+          CONSUMER_DOMAIN: ${{ inputs.consumer_domain }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          GH_REPO: ${{ github.repository }}
+          GH_RUN_ID: ${{ github.run_id }}
+        run: |
+          gh issue comment "${PRODUCER_ISSUE_NUMBER}" \
+            --repo "${PRODUCER_GITHUB_REPO}" \
+            --body "Provisioning FAILED for subscription request from ${CONSUMER_DOMAIN} to ${PRODUCT_NAME}. The subscription record has been set to FAILED. See workflow run: https://github.com/${GH_REPO}/actions/runs/${GH_RUN_ID}"
+          echo "Failure notification sent to producer repo"
+
+      - name: Rollback -- notify consumer repo of failure
+        if: failure()
+        continue-on-error: true
+        env:
+          CONSUMER_REPO: ${{ inputs.consumer_repo }}
+          PRODUCER_DOMAIN: ${{ inputs.producer_domain }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          GH_REPO: ${{ github.repository }}
+          GH_RUN_ID: ${{ github.run_id }}
+        run: |
+          gh issue create \
+            --repo "${CONSUMER_REPO}" \
+            --title "Subscription FAILED: ${PRODUCER_DOMAIN}/${PRODUCT_NAME}" \
+            --body "Provisioning failed for your subscription request to ${PRODUCER_DOMAIN}/${PRODUCT_NAME}. The subscription record is set to FAILED. Platform team has been notified. See workflow run: https://github.com/${GH_REPO}/actions/runs/${GH_RUN_ID}"
+          echo "Failure notification sent to consumer repo"
