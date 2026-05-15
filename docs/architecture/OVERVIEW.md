@@ -19,7 +19,7 @@ The system is opinionated: Apache Iceberg for storage, Glue for ETL, Step Functi
 |---|---|
 | **Domain ownership** | One AWS account per domain. Domain teams own their S3 buckets, Glue catalog, pipelines, and IAM roles. No cross-domain access to raw/silver layers. |
 | **Data-as-product** | Every data product has a `product.yaml` spec with schema, quality rules, SLA, and version. Only gold-layer tables are shared externally. |
-| **Self-serve** | CLI (`datameshy`) wraps Terraform and AWS SDK. Domain engineers create products, trigger refreshes, and manage subscriptions without platform team tickets. |
+| **Self-serve** | Domain teams author `product.yaml` and `infra.yaml`; platform reusable GitHub Actions workflows handle provisioning. No pip install, no local Terraform. |
 | **Federated governance** | Central account defines SCPs, LF-Tags, and catalog schema. Domain accounts have autonomy within those guardrails. No god-roles. |
 | **Event-driven** | All state changes emit events on EventBridge. Central catalog, audit log, and alerting are all subscribers -- never called directly by domains. |
 
@@ -102,7 +102,7 @@ Each domain account is provisioned from the same Terraform module (`infra/module
 | SCPs | `infra/environments/central/` | `scps.tf` | [SECURITY.md](SECURITY.md) |
 | OIDC federation | `infra/environments/central/` | `oidc.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
 | SSO / Identity Center | `infra/environments/central/` | `identity_center.tf` | [SECURITY.md](SECURITY.md) |
-| CLI | `cli/datameshy/` | `cli.py`, `commands/`, `lib/` | -- |
+| Platform catalog tool | `tools/catalog.py` | Standalone script — platform engineers only, no pip install | -- |
 | Environment configs | `infra/environments/` | `central/` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
 | Subscription module | `infra/modules/subscription/` | -- | [SECURITY.md](SECURITY.md) |
 | Monitoring | `infra/modules/monitoring/` | -- | -- |
@@ -122,7 +122,7 @@ Each domain account is provisioned from the same Terraform module (`infra/module
 | **Events** | EventBridge + Schema Registry | Cross-account routing, schema enforcement, at-least-once delivery |
 | **Audit** | CloudTrail + DynamoDB (append-only) | API audit + structured mesh audit log |
 | **Alerts** | SNS | Quality alerts, pipeline failures, freshness violations, subscription requests |
-| **CLI** | Python + Typer + Boto3 | Modern CLI, wraps Terraform + AWS SDK |
+| **Domain interface** | GitHub Actions reusable workflows + YAML | Domain teams author `product.yaml`/`infra.yaml`, push to trigger platform workflows |
 | **Auth (human)** | IAM Identity Center (SSO) | Centralized, MFA enforcement, temporary credentials |
 | **Auth (CI/CD)** | GitHub Actions OIDC federation | No stored keys, branch-scoped roles |
 | **Encryption** | KMS (per-domain CMK) | Domain-level key isolation, S3 Bucket Keys to reduce API calls by 99% |
@@ -131,12 +131,12 @@ Each domain account is provisioned from the same Terraform module (`infra/module
 
 ## Data Flow Summary
 
-1. Domain engineer writes `product.yaml` and runs `datameshy product create`
-2. Terraform provisions: S3 paths, Iceberg table, Glue DQ ruleset, Step Functions pipeline
-3. On refresh (`datameshy product refresh`), Step Functions runs the medallion pipeline: Raw -> Silver -> Gold -> Validate -> Quality -> Publish
+1. Domain engineer writes `product.yaml` and pushes to their domain repo; `provision-product.yml` reusable workflow triggers
+2. Workflow runs Terraform: provisions S3 paths, Iceberg table, Glue DQ ruleset, Step Functions pipeline
+3. On pipeline run, Step Functions runs the medallion pipeline: Raw -> Silver -> Gold -> Validate -> Quality -> Publish
 4. On publish, a `ProductRefreshed` event hits the domain EventBridge bus, which forwards to the central bus
 5. Central Lambda updates the DynamoDB catalog and audit log
-6. Consumer runs `datameshy subscribe request` -> approval workflow -> LF cross-account grant -> resource link in consumer account
+6. Consumer triggers `request-subscription.yml` workflow -> approval -> LF cross-account grant -> resource link in consumer account
 7. Consumer queries via Athena in their own account
 
 ## Key Architectural Decisions

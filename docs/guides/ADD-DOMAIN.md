@@ -21,7 +21,7 @@ Add a new domain (e.g., `marketing`) to the data mesh by provisioning its AWS ac
 | AWS account for the new domain | A separate AWS account (recommended) or a dedicated region/profile in an existing account. |
 | AWS SSO access | A profile with `MeshPlatformAdmin` permission set (central account) and a profile for the new domain account. |
 | Terraform >= 1.6.0 | Installed and in `$PATH`. |
-| `datameshy` CLI installed | Version 0.1.0+. See `cli/pyproject.toml`. |
+| Platform access | Permission to trigger `onboard-domain.yml` in the platform repo, or ability to run Terraform locally. |
 | Governance module outputs | `central_event_bus_arn`, `mesh_catalog_writer_role_arn`, `central_account_id`, `aws_org_id`. |
 
 ---
@@ -50,38 +50,17 @@ Ensure the new domain's AWS account has:
 - **SSO configuration**: IAM Identity Center permission sets (`DomainAdmin`, `DomainDataEngineer`, `DomainConsumer`) must be assigned to the appropriate users/groups for this account.
 - **No conflicting resources**: The account should not have existing S3 buckets or Glue databases that match the naming conventions (`{domain}-raw-*`, `{domain}_raw`, etc.).
 
-### 3. Run `datameshy domain onboard`
+### 3. Trigger `onboard-domain.yml`
 
-```bash
-datameshy --profile new-domain-admin domain onboard \
-  --name marketing \
-  --account-id 987654321098 \
-  --owner marketing-data-team@company.com \
-  --event-bus-arn "arn:aws:events:us-east-1:CENTRAL_ACCOUNT_ID:event-bus/mesh-central-bus"
-```
+Trigger the `onboard-domain.yml` reusable workflow in the platform repo with the domain parameters.
 
-The CLI performs these actions automatically:
+The workflow automatically:
 
 1. **Validates inputs** -- domain name must be alphanumeric + hyphens, max 32 characters. Account ID must be 12 digits. Owner must be a valid email.
-2. **Scaffolds the domain repo** -- generates the layout shown in `examples/example-domain-repo/` with:
-   - `infra/main.tf` -- instantiates `domain-account` and `data-product` modules using `git::` sources
-   - `infra/terraform.tfvars` -- populated with domain name, account ID, and owner
-   - `infra/backend.tf` -- S3 backend template (requires manual setup)
-   - `.datameshy.toml` -- pins `platform_version = "1.0.0"`
-3. **Runs terraform plan** -- shows the resources that will be created
-4. **Prompts for confirmation** -- review the plan before applying
-5. **Runs terraform apply** -- provisions all resources
-6. **Emits `DomainOnboarded` event** -- registers the domain in the central `mesh-domains` DynamoDB table
+2. **Applies Terraform** -- runs `terraform plan` + `terraform apply` for the domain-account module
+3. **Emits `DomainOnboarded` event** -- registers the domain in the central `mesh-domains` DynamoDB table
 
-Use `--dry-run` to scaffold without applying:
-
-```bash
-datameshy --profile new-domain-admin domain onboard \
-  --name marketing \
-  --account-id 987654321098 \
-  --owner marketing-data-team@company.com \
-  --dry-run
-```
+Alternatively, apply Terraform manually using `examples/example-domain-repo/` as a reference.
 
 ### 4. Configure Terraform Variables
 
@@ -159,16 +138,10 @@ This provisions the following resources in the domain account:
 
 ### 7. Verify the Domain
 
-Check domain registration:
+Check domain registration in the `mesh-domains` DynamoDB table, or (platform engineers only):
 
 ```bash
-datameshy --profile central-admin domain list
-```
-
-Check domain details:
-
-```bash
-datameshy --profile central-admin domain status --name marketing
+python tools/catalog.py --profile central-admin browse --domain marketing
 ```
 
 Verify infrastructure in the domain account:
@@ -190,8 +163,8 @@ aws events describe-event-bus --name mesh-domain-bus --profile marketing-admin
 
 | Check | Expected Result |
 |---|---|
-| `datameshy domain list` shows the domain | `marketing` listed with status `ACTIVE` |
-| `datameshy domain status --name marketing` | Shows account ID, owner, 0 active products |
+| `mesh-domains` DynamoDB table | `marketing` listed with status `ACTIVE` |
+| `python tools/catalog.py browse --domain marketing` | Shows account ID, owner, 0 active products (platform engineers only) |
 | 3 S3 buckets exist in domain account | `marketing-raw-*`, `marketing-silver-*`, `marketing-gold-*` |
 | 3 Glue databases exist | `marketing_raw`, `marketing_silver`, `marketing_gold` |
 | KMS key exists | `alias/mesh-marketing` with correct key policy |

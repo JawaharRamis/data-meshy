@@ -55,12 +55,13 @@ on 2026-09-01.
 
 ## Catalog
 
+Platform engineers can discover this product using:
 ```bash
-datameshy catalog search --domain sales
-datameshy catalog describe --name revenue_daily_v2
+python tools/catalog.py search --domain sales
+python tools/catalog.py describe sales revenue_daily_v2
 ```
 
-> Note: `datameshy catalog search --domain sales` returns both `revenue_daily_v1` and
+> Note: `python tools/catalog.py search --domain sales` returns both `revenue_daily_v1` and
 > `revenue_daily_v2`. This is expected — both are live in the catalog until v1 is retired.
 > Integration-level validation of the catalog search results requires a live DynamoDB
 > instance and is not covered by the local spec validation script.

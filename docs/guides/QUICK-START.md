@@ -24,13 +24,12 @@ Get a working data mesh with one domain and one data product running end-to-end:
 | AWS CLI | Version 2.x with SSO support. |
 | Git | For cloning the repository. |
 
-Install the CLI:
+Domain teams interact with the mesh via `product.yaml` / `infra.yaml` files and GitHub Actions — no pip install required.
+
+Platform engineers who need to query the catalog directly can use:
 
 ```bash
-cd cli/
-pip install -e .
-# Verify:
-datameshy --version
+python tools/catalog.py --help
 ```
 
 ---
@@ -89,25 +88,8 @@ Switch to the sales account SSO profile:
 aws sso login --profile sales-engineer
 ```
 
-Use the CLI to onboard the domain:
+Trigger the `onboard-domain.yml` workflow in the platform repo, or configure Terraform manually using the example domain repo as a reference.
 
-```bash
-datameshy --profile sales-engineer domain onboard \
-  --name sales \
-  --account-id 123456789012 \
-  --owner sales-data-team@company.com \
-  --event-bus-arn "arn:aws:events:us-east-1:CENTRAL_ACCOUNT_ID:event-bus/mesh-central-bus"
-```
-
-The CLI will:
-1. Validate inputs
-2. Scaffold your domain repo using `datameshy domain init` (see [example-domain-repo](../../examples/example-domain-repo/))
-3. Run `terraform plan`
-4. Prompt for confirmation
-5. Run `terraform apply`
-6. Emit a `DomainOnboarded` event to the central bus
-
-Alternatively, configure Terraform manually using the example domain repo as a reference.
 Copy `examples/example-domain-repo/infra/terraform.tfvars` and fill in the actual values
 from the governance module outputs:
 
@@ -132,33 +114,16 @@ terraform apply
 
 The `product.yaml` is already provided at `examples/example-domain-repo/products/customer_orders/product.yaml`. You can use it directly or copy it as a starting point.
 
-Create the product using the CLI:
-
-```bash
-datameshy --profile sales-engineer product create \
-  --spec examples/example-domain-repo/products/customer_orders/product.yaml \
-  --event-bus-arn "arn:aws:events:us-east-1:CENTRAL_ACCOUNT_ID:event-bus/mesh-central-bus"
-```
-
-The CLI will:
-1. Validate `product.yaml` against `schemas/product_spec.json`
-2. Check the product does not already exist in `mesh-products`
-3. Upload Glue job templates to the raw S3 bucket
-4. Run `terraform plan` for the `data-product` module
-5. Prompt for confirmation, then apply
-6. Emit a `ProductCreated` event
+Push `product.yaml` to your domain repo; the `provision-product.yml` reusable workflow triggers automatically and:
+1. Validates `product.yaml` against `schemas/product_spec.json`
+2. Runs Terraform to provision the data-product module
+3. Emits a `ProductCreated` event
 
 This provisions: Iceberg table, Glue DQ ruleset (`sales_customer_orders_dq`), Step Functions state machine (`sales-customer_orders-pipeline`), and a catalog entry in DynamoDB.
 
 ### 6. Run a Pipeline Refresh
 
-Trigger the medallion pipeline (raw -> silver -> gold):
-
-```bash
-datameshy --profile sales-engineer product refresh \
-  --domain sales \
-  --name customer_orders
-```
+Trigger the medallion pipeline (raw -> silver -> gold) via the GitHub Actions workflow in your domain repo, or directly via the AWS Step Functions console.
 
 The pipeline will:
 1. Acquire a lock in `mesh-pipeline-locks` (prevents concurrent runs)
@@ -172,15 +137,12 @@ The pipeline will:
 
 ### 7. Verify Results
 
-Check the product status:
+Check the product in the DynamoDB catalog table (`mesh-products`) via the AWS Console or:
 
 ```bash
-datameshy --profile sales-engineer product status \
-  --domain sales \
-  --name customer_orders
+# Platform engineers only:
+python tools/catalog.py --profile central-admin describe sales customer_orders
 ```
-
-This displays: product ID, owner, status, schema version, last refresh time, quality score, rows written, and subscriber count.
 
 Query the data in Athena (from the sales account AWS console):
 
@@ -188,10 +150,11 @@ Query the data in Athena (from the sales account AWS console):
 SELECT * FROM sales_gold.customer_orders LIMIT 10;
 ```
 
-Verify the domain is registered:
+Verify the domain is registered via the DynamoDB `mesh-domains` table, or:
 
 ```bash
-datameshy --profile central-admin domain list
+# Platform engineers only:
+python tools/catalog.py --profile central-admin browse --domain sales
 ```
 
 ---
@@ -200,8 +163,8 @@ datameshy --profile central-admin domain list
 
 | Check | Expected Result |
 |---|---|
-| `datameshy domain list` | Shows `sales` domain with status `ACTIVE` |
-| `datameshy product status --domain sales --name customer_orders` | Shows status `ACTIVE`, quality score >= 95 |
+| `mesh-domains` DynamoDB table | Shows `sales` domain with status `ACTIVE` |
+| `mesh-products` DynamoDB table | Shows `sales/customer_orders` with status `ACTIVE`, quality score >= 95 |
 | Athena query on `sales_gold.customer_orders` | Returns rows |
 | `ProductRefreshed` event in EventBridge | Visible in central bus metrics |
 | Quality score in `mesh-quality-scores` | Record exists with timestamp |
@@ -215,7 +178,7 @@ datameshy --profile central-admin domain list
 |---|---|---|
 | `terraform plan` fails with backend error | S3 state bucket not provisioned | Run `terraform init -backend=false` for initial setup, or provision the backend bucket manually. |
 | `Spec validation failed` | `product.yaml` does not match JSON Schema | Check required fields (`schema_version`, `product`, `sla`, `schema`, `quality`, `classification`). Validate locally: `python -c "import jsonschema; jsonschema.validate(...)"`. |
-| `Product already exists` | Product was previously created | Use `datameshy product refresh` instead, or delete the existing product first. |
+| `Product already exists` | Product was previously created | Delete the item from `mesh-products` DynamoDB table and re-run the workflow, or update the existing product. |
 | `Pipeline is already running` | Concurrent run lock exists | Wait for the current execution to complete, or check `mesh-pipeline-locks` for stale locks (TTL 3h). |
 | `Quality check failed` | DQDL rules did not pass | Review the failed rules in the quality alert. Adjust data or rules in `product.yaml`. |
 | `aws sso login` fails | SSO not configured | Work with your AWS admin to set up IAM Identity Center permission sets. |

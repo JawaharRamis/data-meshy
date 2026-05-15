@@ -1,9 +1,9 @@
 # Example Domain Repo
 
-This directory is a reference implementation of what `datameshy domain init` produces.
-It represents how a domain team's isolated repo (e.g., `data-meshy-sales`) should look.
+This directory is a reference implementation of a domain team's isolated repo (e.g., `data-meshy-sales`).
 
 Use this as a starting point for a new domain repo or to understand the expected structure.
+Domain teams author `product.yaml` and `infra.yaml` files only — no HCL, no pip install.
 
 ---
 
@@ -33,18 +33,10 @@ data-meshy-{domain}/
 
 ## Quick Start
 
-### 1. Clone (or scaffold with the CLI)
+### 1. Clone this example
 
-Clone this example and rename it, or use the CLI to scaffold a fresh repo:
-
-```bash
-datameshy domain init \
-  --name <your-domain> \
-  --account-id <your-aws-account-id> \
-  --owner <your-email>
-```
-
-The CLI generates the same structure as this example.
+Clone this example and rename it for your domain.
+The platform `onboard-domain.yml` workflow will provision the AWS infrastructure.
 
 ### 2. Edit `infra/terraform.tfvars`
 
@@ -92,19 +84,10 @@ terraform plan
 terraform apply
 ```
 
-### 6. Validate your product spec
+### 6. Validate and create the data product
 
-```bash
-datameshy product validate --spec products/customer_orders/product.yaml
-```
-
-### 7. Create the data product
-
-```bash
-datameshy product create \
-  --spec products/customer_orders/product.yaml \
-  --event-bus-arn "arn:aws:events:us-east-1:GOVERNANCE_ACCOUNT_ID:event-bus/mesh-central-bus"
-```
+Push `products/customer_orders/product.yaml` to your domain repo.
+The `provision-product.yml` reusable workflow validates the spec and provisions the data-product module automatically.
 
 ---
 
@@ -129,10 +112,9 @@ To add a new product, create a new directory under `products/`:
 mkdir -p products/my_new_product/glue_jobs
 cp products/customer_orders/product.yaml products/my_new_product/product.yaml
 # Edit product.yaml with your product details
-datameshy product validate --spec products/my_new_product/product.yaml
 ```
 
-Then add a new `module "data_product"` block in `infra/main.tf` for the new product.
+Push the new `product.yaml` to your domain repo and the `provision-product.yml` workflow will validate and provision it.
 
 ---
 
