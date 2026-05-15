@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Optional
 
+import boto3
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -96,7 +97,7 @@ def product_create(
         session = _get_session_from_ctx(ctx)
         dynamodb = session.resource("dynamodb")
         products_table = dynamodb.Table(_PRODUCTS_TABLE)
-        existing = products_table.get_item(Key={"product_id": f"{domain_name}#{product_name}"})
+        existing = products_table.get_item(Key={"domain#product_name": f"{domain_name}#{product_name}"})
         if existing.get("Item"):
             console.print(
                 f"[red]Product '{domain_name}/{product_name}' already exists.[/red]\n"
@@ -184,6 +185,11 @@ def product_create(
                     "product_id": f"{domain_name}#{product_name}",
                     "owner": owner,
                     "schema_version": schema_version,
+                    "schema": parsed.get("schema", {}),
+                    "classification": parsed.get("classification", "internal"),
+                    "description": parsed["product"].get("description", ""),
+                    "tags": parsed.get("tags", []),
+                    "sla": parsed.get("sla", {}),
                 },
             )
             console.print(f"[green]ProductCreated event emitted.[/green] event_id={event_id}")
@@ -233,7 +239,7 @@ def product_refresh(
         # 1. Look up product
         products_table = dynamodb.Table(_PRODUCTS_TABLE)
         product_id = f"{domain}#{name}"
-        response = products_table.get_item(Key={"product_id": product_id})
+        response = products_table.get_item(Key={"domain#product_name": product_id})
         product_item = response.get("Item")
 
         if not product_item:
@@ -312,7 +318,7 @@ def product_refresh(
 
         # 5. Show results
         # Fetch updated product record for quality score
-        updated = products_table.get_item(Key={"product_id": product_id}).get("Item", {})
+        updated = products_table.get_item(Key={"domain#product_name": product_id}).get("Item", {})
         quality_score = updated.get("last_quality_score", "N/A")
         rows_written = updated.get("last_rows_written", "N/A")
         catalog_url = updated.get("catalog_url", f"https://console.aws.amazon.com/glue/home?region={region}#/catalog")
@@ -348,20 +354,18 @@ def product_status(
 
         product_id = f"{domain}#{name}"
         products_table = dynamodb.Table(_PRODUCTS_TABLE)
-        response = products_table.get_item(Key={"product_id": product_id})
+        response = products_table.get_item(Key={"domain#product_name": product_id})
         item = response.get("Item")
 
         if not item:
             console.print(f"[red]Product '{domain}/{name}' not found in mesh-products.[/red]")
             raise typer.Exit(code=1)
 
-        # Fetch subscriber count
+        # Fetch subscriber count — query by PK (product_id is the hash key, no GSI needed)
         subscriptions_table = dynamodb.Table("mesh-subscriptions")
         try:
             subs_response = subscriptions_table.query(
-                IndexName="product-index",
-                KeyConditionExpression="product_id = :pid",
-                ExpressionAttributeValues={":pid": product_id},
+                KeyConditionExpression=boto3.dynamodb.conditions.Key("product_id").eq(product_id),
             )
             subscriber_count = subs_response.get("Count", 0)
         except Exception:
@@ -371,7 +375,7 @@ def product_status(
         tbl.add_column("Key", style="bold cyan")
         tbl.add_column("Value")
 
-        tbl.add_row("Product ID", item.get("product_id", "-"))
+        tbl.add_row("Product ID", item.get("domain#product_name", "-"))
         tbl.add_row("Domain", item.get("domain", domain))
         tbl.add_row("Name", item.get("product_name", name))
         tbl.add_row("Owner", item.get("owner", "-"))
@@ -448,7 +452,7 @@ def product_deprecate(
         products_table = dynamodb.Table(_PRODUCTS_TABLE)
 
         # 1. Fetch product
-        response = products_table.get_item(Key={"product_id": product_id})
+        response = products_table.get_item(Key={"domain#product_name": product_id})
         item = response.get("Item")
         if not item:
             console.print(f"[red]Product '{domain}/{product_name}' not found in mesh-products.[/red]")
@@ -485,7 +489,7 @@ def product_deprecate(
 
         # 3. Update DynamoDB
         products_table.update_item(
-            Key={"product_id": product_id},
+            Key={"domain#product_name": product_id},
             UpdateExpression=(
                 "SET #s = :deprecated, sunset_date = :sd, sunset_days = :sdays, deprecated_at = :now"
             ),
@@ -611,7 +615,7 @@ def product_rollback(
         products_table = dynamodb.Table(_PRODUCTS_TABLE)
 
         # 1. Fetch product
-        response = products_table.get_item(Key={"product_id": product_id})
+        response = products_table.get_item(Key={"domain#product_name": product_id})
         item = response.get("Item")
         if not item:
             console.print(f"[red]Product '{domain}/{product_name}' not found in mesh-products.[/red]")
@@ -792,7 +796,7 @@ def product_import(
         product_id = f"{domain_name}#{product_name}"
 
         # Duplicate guard
-        existing = products_table.get_item(Key={"product_id": product_id})
+        existing = products_table.get_item(Key={"domain#product_name": product_id})
         if existing.get("Item"):
             console.print(
                 f"[red]Product '{domain_name}/{product_name}' is already registered in mesh-products.[/red]\n"
@@ -865,7 +869,7 @@ def product_import(
         # 5. Write catalog entry
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         products_table.put_item(Item={
-            "product_id": product_id,
+            "domain#product_name": product_id,
             "domain": domain_name,
             "product_name": product_name,
             "owner": owner,
@@ -875,6 +879,7 @@ def product_import(
             "glue_database": glue_database,
             "glue_table": glue_table,
             "schema_version": schema_version,
+            "schema": parsed.get("schema", {}),
             "classification": classification,
             "pii": has_pii,
             "imported_at": now_str,

@@ -49,8 +49,8 @@ def _get_active_subscribers(product_id: str) -> list[dict]:
     """Return all ACTIVE subscription records for the product."""
     ddb = _get_dynamodb()
     table = ddb.Table(SUBSCRIPTIONS_TABLE)
+    # product_id is the table hash key — query directly, no GSI needed
     response = table.query(
-        IndexName="product-index",
         KeyConditionExpression=boto3.dynamodb.conditions.Key("product_id").eq(product_id),
         FilterExpression=boto3.dynamodb.conditions.Attr("status").eq("ACTIVE"),
     )
@@ -123,14 +123,16 @@ def _write_audit(product_id: str, sunset_date: str, notified_count: int) -> None
     """Write a deprecation audit event to the audit log table."""
     ddb = _get_dynamodb()
     table = ddb.Table(AUDIT_TABLE)
+    now = _now_iso()
     try:
         table.put_item(Item={
-            "audit_id": f"deprecation#{product_id}#{_now_iso()}",
+            "event_id": f"deprecation#{product_id}#{now}",
+            "timestamp": now,
             "event_type": "ProductDeprecated",
+            "domain": product_id.split("#")[0] if "#" in product_id else "unknown",
             "product_id": product_id,
             "sunset_date": sunset_date,
             "subscribers_notified": notified_count,
-            "timestamp": _now_iso(),
         })
     except ClientError as exc:
         logger.warning("Failed to write audit entry", extra={"error": str(exc)})

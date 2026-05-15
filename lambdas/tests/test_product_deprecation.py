@@ -45,25 +45,29 @@ def aws_env(monkeypatch):
 
 
 def _make_tables(ddb):
-    """Create required DynamoDB tables and return (subs_table, audit_table)."""
+    """Create required DynamoDB tables matching the Terraform schema in dynamodb.tf."""
     subs_table = ddb.create_table(
         TableName=SUBSCRIPTIONS_TABLE,
-        KeySchema=[{"AttributeName": "subscription_id", "KeyType": "HASH"}],
+        KeySchema=[
+            {"AttributeName": "product_id", "KeyType": "HASH"},
+            {"AttributeName": "subscriber_account_id", "KeyType": "RANGE"},
+        ],
         AttributeDefinitions=[
-            {"AttributeName": "subscription_id", "AttributeType": "S"},
             {"AttributeName": "product_id", "AttributeType": "S"},
+            {"AttributeName": "subscriber_account_id", "AttributeType": "S"},
         ],
         BillingMode="PAY_PER_REQUEST",
-        GlobalSecondaryIndexes=[{
-            "IndexName": "product-index",
-            "KeySchema": [{"AttributeName": "product_id", "KeyType": "HASH"}],
-            "Projection": {"ProjectionType": "ALL"},
-        }],
     )
     audit_table = ddb.create_table(
         TableName=AUDIT_TABLE,
-        KeySchema=[{"AttributeName": "audit_id", "KeyType": "HASH"}],
-        AttributeDefinitions=[{"AttributeName": "audit_id", "AttributeType": "S"}],
+        KeySchema=[
+            {"AttributeName": "event_id", "KeyType": "HASH"},
+            {"AttributeName": "timestamp", "KeyType": "RANGE"},
+        ],
+        AttributeDefinitions=[
+            {"AttributeName": "event_id", "AttributeType": "S"},
+            {"AttributeName": "timestamp", "AttributeType": "S"},
+        ],
         BillingMode="PAY_PER_REQUEST",
     )
     return subs_table, audit_table
@@ -188,6 +192,9 @@ def test_writes_audit_entry():
     audit_items = audit_table.scan().get("Items", [])
     assert len(audit_items) >= 1
     audit = audit_items[0]
+    assert "event_id" in audit
+    assert audit["event_id"].startswith("deprecation#")
+    assert "timestamp" in audit
     assert audit["event_type"] == "ProductDeprecated"
     assert audit["product_id"] == PRODUCT_ID
     assert audit["sunset_date"] == SUNSET_DATE

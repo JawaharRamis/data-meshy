@@ -105,6 +105,7 @@ def _handle_product_created(detail, dynamodb, products_table):
         "description": detail.get("description", ""),
         "tags": detail.get("tags", []),
         "schema_version": detail.get("schema_version", 1),
+        "schema": detail.get("schema", {}),
         "created_at": timestamp,
         "last_refreshed_at": timestamp,
         "quality_score": 0,

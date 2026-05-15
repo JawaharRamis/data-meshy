@@ -48,6 +48,13 @@ class TestProductCreated:
                 "timestamp": "2026-04-03T10:00:00Z",
                 "version": "1.0",
                 "sla": {"refresh_frequency": "daily", "freshness_target": "24 hours"},
+                "schema": {
+                    "columns": [
+                        {"name": "order_id", "type": "string", "pii": False},
+                        {"name": "customer_email", "type": "string", "pii": True},
+                        {"name": "amount", "type": "double", "pii": False},
+                    ]
+                },
             },
             account=TEST_ACCOUNT_ID,
         )
@@ -62,6 +69,12 @@ class TestProductCreated:
         assert item["Item"]["domain"] == TEST_DOMAIN
         assert item["Item"]["product_name"] == TEST_PRODUCT
         assert item["Item"]["status"] == "ACTIVE"
+        # Schema must be persisted for PII filtering and drift detection
+        schema = item["Item"].get("schema", {})
+        columns = schema.get("columns", [])
+        assert len(columns) == 3
+        pii_cols = [c["name"] for c in columns if c.get("pii")]
+        assert pii_cols == ["customer_email"]
 
 
 class TestProductRefreshed:
