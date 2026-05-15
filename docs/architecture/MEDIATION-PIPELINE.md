@@ -254,7 +254,7 @@ The Step Functions state machine expects this input structure (assembled by the 
 
 | Method | How |
 |---|---|
-| CLI | `datameshy product refresh` -- CLI calls `states:StartExecution` via SSO profile |
+| AWS CLI / Console | `aws stepfunctions start-execution` with the state machine ARN and SSO profile |
 | Schedule | EventBridge Scheduler rule with cron expression (defined per product in `product.yaml` sla.refresh_frequency) |
 | Manual | AWS Console -> Step Functions -> Start Execution |
 

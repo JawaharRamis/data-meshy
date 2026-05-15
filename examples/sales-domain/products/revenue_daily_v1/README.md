@@ -44,9 +44,9 @@ coexistence).
 1. Update your query or ETL job to use `revenue_daily_v2` instead of `revenue_daily_v1`.
 2. Replace any reference to the `revenue` column with `gross_revenue`.
 3. Optionally consume `net_revenue` for post-discount/post-return figures.
-4. Subscribe to `revenue_daily_v2` via the catalog:
+4. Discover `revenue_daily_v2` via the catalog (platform engineers only):
    ```bash
-   datameshy catalog describe --name revenue_daily_v2
+   python tools/catalog.py describe sales revenue_daily_v2
    ```
 5. Cancel your subscription to `revenue_daily_v1` after validating the new pipeline.
 

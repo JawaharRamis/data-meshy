@@ -28,7 +28,9 @@ Consumers should migrate to `revenue_daily_v2` before 2026-09-01. See
 
 ## Browsing the catalog
 
+Platform engineers can query the catalog directly:
+
 ```bash
-datameshy catalog search --domain sales
-datameshy catalog describe --name revenue_daily_v2
+python tools/catalog.py search --domain sales
+python tools/catalog.py describe sales revenue_daily_v2
 ```

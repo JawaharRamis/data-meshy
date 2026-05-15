@@ -16,7 +16,9 @@ is captured, and data is available to any authenticated domain team via the mesh
 
 ## Browsing the catalog
 
+Platform engineers can query the catalog directly:
+
 ```bash
-datameshy catalog search --domain marketing
-datameshy catalog describe --name campaign_metrics
+python tools/catalog.py search --domain marketing
+python tools/catalog.py describe marketing campaign_metrics
 ```

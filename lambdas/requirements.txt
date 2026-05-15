@@ -1,0 +1,4 @@
+boto3>=1.34
+botocore>=1.34
+moto[dynamodb,events,sns,sqs,s3]>=5.0
+pytest>=8.0

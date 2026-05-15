@@ -19,7 +19,7 @@ Create a new data product within an existing domain by writing the `product.yaml
 |---|---|
 | Domain onboarded | The domain must be registered and its infrastructure deployed (see [Add a Domain](ADD-DOMAIN.md)). |
 | AWS SSO access | A profile with `DomainDataEngineer` permission set for the domain account. |
-| `datameshy` CLI installed | Version 0.1.0+. |
+| Platform access | Permission to trigger `provision-product.yml` reusable workflow, or Terraform access for manual provisioning. |
 | Source data accessible | Source system reachable from the domain account (JDBC connection or S3 path). |
 
 ---
@@ -78,50 +78,21 @@ Key decisions to make:
 | Who can access? | `classification` | `internal` for most products. `confidential` if any PII. |
 | How often to refresh? | `sla.refresh_frequency` | `daily` is most common. `on_demand` for static reference data. |
 
-### 2. Validate the Spec
+### 2. Validate and provision the product
 
-Validate against the JSON Schema before provisioning:
-
-```bash
-datameshy --profile sales-engineer product create \
-  --spec examples/example-domain-repo/products/my_new_product/product.yaml \
-  --dry-run
-```
-
-The `--dry-run` flag validates the spec without creating any resources. It checks:
-
-- All required fields are present (`schema_version`, `product`, `sla`, `schema`, `quality`, `classification`)
-- Column names match the snake_case pattern
-- Types are valid Spark SQL types
-- Classification is one of the allowed values
-- Quality rules are non-empty
-
-If validation fails, fix the errors shown and re-run.
-
-### 3. Run `datameshy product create`
-
-Once the spec is valid, provision the product:
-
-```bash
-datameshy --profile sales-engineer product create \
-  --spec examples/example-domain-repo/products/my_new_product/product.yaml \
-  --event-bus-arn "arn:aws:events:us-east-1:CENTRAL_ACCOUNT_ID:event-bus/mesh-central-bus"
-```
-
-The CLI performs these steps:
+Push `product.yaml` to your domain repo; the `provision-product.yml` reusable workflow triggers and:
 
 1. **Validates the spec** against `schemas/product_spec.json`
 2. **Checks the product does not already exist** in the `mesh-products` DynamoDB table
 3. **Uploads Glue job templates** to the raw S3 bucket under `pipeline-code/{product_name}/`
 4. **Runs `terraform plan`** for the `data-product` module with variables extracted from the spec
-5. **Prompts for confirmation** before applying
-6. **Runs `terraform apply`** which provisions:
+5. **Runs `terraform apply`** which provisions:
    - Iceberg table in the gold Glue catalog database
    - Glue Data Quality ruleset (`{domain}_{product}_dq`)
    - Step Functions state machine (`{domain}-{product}-pipeline`)
    - Secrets Manager secret for source credentials
    - LF-Tags on the table (`classification`, `pii`, `domain`)
-7. **Emits a `ProductCreated` event** to the central EventBridge bus
+6. **Emits a `ProductCreated` event** to the central EventBridge bus
 
 ### 4. Set Up Source Credentials
 
@@ -170,26 +141,20 @@ aws s3 cp examples/example-domain-repo/products/my_new_product/gold_aggregate.py
 
 ### 6. Run the First Pipeline Refresh
 
+Trigger the Step Functions state machine directly via the AWS Console or CLI:
+
 ```bash
-datameshy --profile sales-engineer product refresh \
-  --domain sales \
-  --name my_new_product
+aws stepfunctions start-execution \
+  --state-machine-arn "arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:sales-my_new_product-pipeline" \
+  --profile sales-engineer
 ```
-
-The CLI will:
-
-1. Look up the product in `mesh-products` DynamoDB
-2. Check the pipeline is not already locked
-3. Start the Step Functions state machine with the correct input parameters
-4. Wait for completion with a progress spinner
-5. Display the quality score and rows written on success
 
 ### 7. Verify the Product
 
+Check the product in `mesh-products` DynamoDB table, or (platform engineers only):
+
 ```bash
-datameshy --profile sales-engineer product status \
-  --domain sales \
-  --name my_new_product
+python tools/catalog.py describe sales my_new_product
 ```
 
 Query the data:
@@ -204,7 +169,7 @@ SELECT * FROM sales_gold.my_new_product LIMIT 10;
 
 | Check | Expected Result |
 |---|---|
-| `datameshy product status` shows `ACTIVE` | Product is registered and refreshed |
+| `mesh-products` DynamoDB record shows `ACTIVE` | Product is registered and refreshed |
 | Quality score >= `minimum_quality_score` | Data passed all DQDL rules |
 | Rows written > 0 | Data flowed through the pipeline |
 | `ProductRefreshed` event emitted | Check EventBridge metrics or `mesh-audit-log` |
@@ -218,13 +183,13 @@ SELECT * FROM sales_gold.my_new_product LIMIT 10;
 | Problem | Cause | Solution |
 |---|---|---|
 | `Spec validation failed` | Missing or invalid fields | Check required fields: `schema_version`, `product.name`, `product.domain`, `product.owner`, `sla.refresh_frequency`, `schema.columns`, `quality.rules`, `classification`. |
-| `Product already exists` | Duplicate product name in domain | Use a different name, or use `datameshy product refresh` if updating an existing product. |
+| `Product already exists` | Duplicate product name in domain | Use a different name, or delete the existing DynamoDB record and re-run the workflow. |
 | `Pipeline is already running` | Concurrent execution lock active | Wait for current run to finish. Check `mesh-pipeline-locks` table. Locks auto-expire after 3 hours (TTL). |
 | `Quality check failed` | DQDL rules below threshold | Review the `failed_rules` in the `QualityAlert` event. Adjust data quality or lower `minimum_quality_score`. |
 | `UndeclaredColumnError` in gold job | Output has columns not in `product.yaml` | Either add the column to the spec, or remove it from the transform logic. |
 | `SchemaValidationError` in silver job | Raw data missing expected columns | Check source data matches the expected schema. Add the column to `product.yaml` if it should exist. |
 | Glue job fails with connection error | JDBC source not reachable | Verify the Glue connection exists and the VPC/subnet configuration is correct. Check the secret in Secrets Manager. |
-| `terraform plan` shows no changes | Product already provisioned | This is normal if the product was already created. Use `datameshy product refresh` to run the pipeline. |
+| `terraform plan` shows no changes | Product already provisioned | This is normal if the product was already created. Trigger the Step Functions state machine to run the pipeline. |
 
 ---
 

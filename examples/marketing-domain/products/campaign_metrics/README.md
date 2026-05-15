@@ -50,8 +50,8 @@ any authenticated domain team can subscribe without additional approval.
 
 ## Catalog
 
-Discover this product:
+Platform engineers can discover this product using:
 ```bash
-datameshy catalog search --domain marketing
-datameshy catalog describe --name campaign_metrics
+python tools/catalog.py search --domain marketing
+python tools/catalog.py describe marketing campaign_metrics
 ```

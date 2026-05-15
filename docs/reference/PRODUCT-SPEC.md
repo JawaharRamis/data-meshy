@@ -250,7 +250,7 @@ lineage:
 The `product.yaml` is validated in two places:
 
 1. **CI (GitHub Actions)**: On every PR that modifies a `product.yaml`, the CI pipeline validates the file against `schemas/product_spec.json`, checks all referenced columns exist in the schema, and detects breaking changes vs. the previous committed version.
-2. **CLI**: `datameshy product create --spec product.yaml` validates the spec before provisioning any resources.
+2. **`provision-product.yml` workflow**: validates the spec against `schemas/product_spec.json` before provisioning any resources.
 
 ### Breaking Change Detection
 

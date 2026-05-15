@@ -12,7 +12,7 @@ data product (e.g., `sales/customer_orders`). It covers two personas and two flo
 
 | Persona | Tool | Flow |
 |---------|------|------|
-| Technical analyst | `datameshy` CLI + boto3 | CLI subscription + Athena query |
+| Technical analyst | `request-subscription.yml` GitHub Actions workflow + boto3 | Workflow-driven subscription + Athena query |
 | Product owner / governance lead | AWS DataZone web UI | Portal-based subscription approval |
 
 **What you will end up with**: a resource link `marketing_catalog.sales_customer_orders`
@@ -27,25 +27,24 @@ blocked by Lake Formation column-level filtering and cannot be queried.
 - Phase 1 deployed (governance account + producer domain pipeline running).
 - Phase 2 Stream 1 deployed (`subscription-provisioner` Step Function, DynamoDB table, API routes).
 - Phase 2 Stream 2 deployed (subscription Lambda handlers).
-- `datameshy` CLI installed: `pip install data-meshy`
-- AWS credentials configured for both the **consumer account** and the **producer account**.
+- `request-subscription.yml` reusable workflow available in the platform repo.
+- AWS credentials configured via OIDC for both the **consumer account** and the **producer account**.
 
 ---
 
-## Flow A — CLI (technical persona)
+## Flow A — Workflow (technical persona)
 
 ### Step 1: Request a subscription
 
-From the **consumer account**:
+Trigger the `request-subscription.yml` reusable workflow in the platform repo with inputs:
+- `product`: `sales/customer_orders`
+- `columns`: `order_id,order_date,order_total`
+- `justification`: `"Marketing attribution model requires order date and total; email excluded (PII)."`
 
-```bash
-datameshy subscribe request \
-  --product sales/customer_orders \
-  --columns order_id,order_date,order_total \
-  --justification "Marketing attribution model requires order date and total; email excluded (PII)."
-```
+The workflow publishes a `SubscriptionRequested` event to the central EventBridge bus.
+The sales product owner is notified via SNS.
 
-Expected output:
+Expected DynamoDB record:
 
 ```json
 {
@@ -56,18 +55,11 @@ Expected output:
 }
 ```
 
-The `SubscriptionRequested` event is published to the central EventBridge bus.
-The sales product owner is notified.
-
 ### Step 2: Approve the subscription (producer side)
 
-The **producer account** approves the subscription. Either the governance team runs
-this command from the producer account profile, or the product owner uses the
-DataZone UI (see Flow B below):
-
-```bash
-datameshy subscribe approve --subscription-id a1b2c3d4-e5f6-7890-abcd-ef1234567890
-```
+The **producer account** approves the subscription via the DataZone UI (see Flow B below),
+or a governance team member can approve directly via the `subscription-provisioner`
+Step Function in the AWS console.
 
 Behind the scenes the `subscription-provisioner` Step Function runs the saga:
 
@@ -82,11 +74,9 @@ a `SubscriptionRevoked` event with `revoked_by = "system"` and a
 
 ### Step 3: Verify the subscription is ACTIVE
 
-```bash
-datameshy subscribe list --product sales/customer_orders --status ACTIVE
-```
+Check the `mesh-subscriptions` DynamoDB table for the subscription record.
 
-Expected output:
+Expected record:
 
 ```
 subscription_id                        product_id              status  columns
@@ -176,28 +166,14 @@ fails), the compensator rolls back:
 3. The subscription record in DynamoDB is updated to `status = "FAILED"` with
    a `compensation_reason` field.
 
-You can inspect the failed subscription via the CLI:
-
-```bash
-datameshy subscribe list --product sales/customer_orders --status FAILED
-```
-
-Or via the DynamoDB console in the governance account:
+Inspect the failed subscription via the DynamoDB console in the governance account:
 
 - Table: `mesh-subscriptions`
 - Partition key: `sales/customer_orders`
 - Sort key: `<consumer-account-id>`
 - Inspect `status`, `compensation_reason`, and `provisioning_steps`.
 
-To retry, revoke the failed subscription and request again:
-
-```bash
-datameshy subscribe revoke --subscription-id <id>
-datameshy subscribe request \
-  --product sales/customer_orders \
-  --columns order_id,order_date,order_total \
-  --justification "Retry after compensation."
-```
+To retry, delete the failed subscription record from DynamoDB and trigger the `request-subscription.yml` workflow again.
 
 ---
 

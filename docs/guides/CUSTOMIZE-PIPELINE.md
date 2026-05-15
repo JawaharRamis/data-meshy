@@ -17,7 +17,7 @@ Customize the three Glue PySpark jobs (raw ingestion, silver transform, gold agg
 
 | Requirement | Details |
 |---|---|
-| Product created | `datameshy product create` has been run and infrastructure is provisioned. |
+| Product created | `provision-product.yml` workflow has run and infrastructure is provisioned. |
 | Domain engineer AWS access | SSO profile with `DomainDataEngineer` permission set. |
 | Understanding of source data | You know the schema, format, and location of your source data. |
 | Familiarity with PySpark | Glue jobs use PySpark on the Glue 4.0 runtime. |
@@ -329,8 +329,8 @@ Steps when adding a new output column:
 1. Add the column logic in the gold transform
 2. Add the column definition to `product.yaml` in `schema.columns`
 3. Increment `schema_version` in `product.yaml`
-4. Run `datameshy product create --spec product.yaml` to update the infrastructure
-5. Run `datameshy product refresh` to test
+4. Push `product.yaml` to trigger `provision-product.yml` to update the infrastructure
+5. Trigger the Step Functions state machine to test
 
 #### Upsert Behavior
 
@@ -373,12 +373,12 @@ aws s3 cp examples/example-domain-repo/products/my_product/gold_aggregate.py \
 
 ### 6. Test the Pipeline
 
-Run a pipeline refresh to test the updated transforms:
+Run a pipeline refresh to test the updated transforms by triggering the Step Functions state machine:
 
 ```bash
-datameshy --profile sales-engineer product refresh \
-  --domain sales \
-  --name my_product
+aws stepfunctions start-execution \
+  --state-machine-arn "arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:sales-my_product-pipeline" \
+  --profile sales-engineer
 ```
 
 If the pipeline fails, check the Glue job logs in CloudWatch:

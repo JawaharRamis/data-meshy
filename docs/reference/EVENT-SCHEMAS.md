@@ -153,7 +153,7 @@ Every event includes these required fields:
 
 **Source**: `datameshy` (domain)
 
-**Trigger**: Consumer runs `datameshy subscribe request`
+**Trigger**: Consumer triggers `request-subscription.yml` workflow
 
 **Central Handler**: Step Functions -- approval workflow
 
@@ -226,7 +226,7 @@ Every event includes these required fields:
 
 **Source**: `datameshy` (domain)
 
-**Trigger**: Owner runs `datameshy product deprecate`
+**Trigger**: Owner triggers `deprecate-product.yml` workflow
 
 **Central Handler**: SNS -- notify all subscribers; mark product as deprecated in catalog
 
