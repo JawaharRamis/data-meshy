@@ -85,7 +85,7 @@ Creates a secret at `{domain}/{product_name}/{source_name}-credentials` with:
 2. **Governance module** provides DynamoDB table names (`mesh-products`, `mesh-pipeline-locks`, `mesh-audit-log`) and the central EventBridge bus ARN.
 3. **Step Functions** executes the medallion pipeline by invoking Glue jobs, Lambdas, and DynamoDB operations using the ASL definition from the [template repo](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/medallion_pipeline.asl.json).
 4. **Lambdas** (`catalog_writer`, `audit_writer`) update the DynamoDB entries that this module initially creates.
-5. **CLI** (`datameshy product create`) triggers terraform plan/apply for this module and emits a `ProductCreated` event.
+5. **`provision-product.yml` workflow** triggers terraform plan/apply for this module and emits a `ProductCreated` event.
 
 ## Configuration
 
@@ -132,4 +132,4 @@ Creates a secret at `{domain}/{product_name}/{source_name}-credentials` with:
 - [Governance](GOVERNANCE.md) -- central account with the DynamoDB tables and EventBridge bus
 - [Pipeline Templates](PIPELINE-TEMPLATES.md) -- the Glue jobs and ASL state machine that this module orchestrates
 - [Lambdas](LAMBDAS.md) -- handlers that update the catalog entries this module creates
-- [CLI](CLI.md) -- `datameshy product create` command that drives this module
+- `provision-product.yml` reusable workflow — triggers Terraform provisioning for this module
