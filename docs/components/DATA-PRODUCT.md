@@ -56,7 +56,7 @@ A Glue Data Quality ruleset named `{domain}_{product_name}_dq` is attached to th
 
 - **Name**: `{domain}-{product_name}-pipeline`
 - **Execution role**: `MeshEventRole` (from domain-account output)
-- **Definition**: Loaded from `templates/step_functions/medallion_pipeline.asl.json` via `templatefile()`. Falls back to a placeholder `Succeed` state if the file does not exist.
+- **Definition**: Loaded from the [template repo](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/medallion_pipeline.asl.json) via `templatefile()`. Falls back to a placeholder `Succeed` state if the file does not exist.
 - **Logging**: ALL level with execution data, to `/data-meshy/{domain}/{product_name}/pipeline` CloudWatch log group (30-day retention).
 - **Tracing**: X-Ray enabled.
 - **Timeout**: 7200 seconds (2 hours).
@@ -83,7 +83,7 @@ Creates a secret at `{domain}/{product_name}/{source_name}-credentials` with:
 
 1. **Domain-account module** provides all infrastructure references: bucket names, catalog DB names, role ARNs, KMS key, event bus ARN.
 2. **Governance module** provides DynamoDB table names (`mesh-products`, `mesh-pipeline-locks`, `mesh-audit-log`) and the central EventBridge bus ARN.
-3. **Step Functions** executes the medallion pipeline by invoking Glue jobs, Lambdas, and DynamoDB operations using the ASL definition from `templates/step_functions/medallion_pipeline.asl.json`.
+3. **Step Functions** executes the medallion pipeline by invoking Glue jobs, Lambdas, and DynamoDB operations using the ASL definition from the [template repo](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/medallion_pipeline.asl.json).
 4. **Lambdas** (`catalog_writer`, `audit_writer`) update the DynamoDB entries that this module initially creates.
 5. **CLI** (`datameshy product create`) triggers terraform plan/apply for this module and emits a `ProductCreated` event.
 

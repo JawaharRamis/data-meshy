@@ -96,8 +96,8 @@ Each domain account is provisioned from the same Terraform module (`infra/module
 | Central governance | `infra/modules/governance/` | `dynamodb.tf`, `iam.tf`, `eventbridge.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
 | Domain account | `infra/modules/domain-account/` | `s3.tf`, `iam.tf`, `lakeformation.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
 | Data product | `infra/modules/data-product/` | `outputs.tf`, main.tf | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
-| Medallion pipeline (ASL) | `templates/step_functions/` | `medallion_pipeline.asl.json` | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
-| Glue job templates | `templates/glue_jobs/` | `raw_ingestion.py`, `silver_transform.py`, `gold_aggregate.py` | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
+| Medallion pipeline (ASL) | [template repo: step_functions/](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/) | `medallion_pipeline.asl.json` | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
+| Glue job templates | [template repo: glue_jobs/](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/) | `raw_ingestion.py`, `silver_transform.py`, `gold_aggregate.py` | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
 | Event schemas | `schemas/events/` | 10 JSON Schema files | [EVENT-MESH.md](EVENT-MESH.md) |
 | SCPs | `infra/environments/central/` | `scps.tf` | [SECURITY.md](SECURITY.md) |
 | OIDC federation | `infra/environments/central/` | `oidc.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |

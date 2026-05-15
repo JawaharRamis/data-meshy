@@ -46,7 +46,7 @@ Each job receives parameters from the Step Functions state machine input.
 
 ### 1. Understand the Template Structure
 
-The template files are located at `templates/glue_jobs/`. The customer_orders example shows customized versions at `examples/example-domain-repo/products/customer_orders/`.
+The template files are located in the [template repo at glue_jobs/](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/). The customer_orders example shows customized versions at `examples/example-domain-repo/products/customer_orders/`.
 
 Each template has clearly marked customization sections:
 
@@ -61,9 +61,11 @@ Copy templates to your product directory before modifying:
 ```bash
 mkdir -p examples/example-domain-repo/products/my_product/
 
-cp templates/glue_jobs/raw_ingestion.py   examples/example-domain-repo/products/my_product/
-cp templates/glue_jobs/silver_transform.py examples/example-domain-repo/products/my_product/
-cp templates/glue_jobs/gold_aggregate.py  examples/example-domain-repo/products/my_product/
+# Glue job templates are now in the template repo. Download them:
+# https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/
+gh api repos/JawaharRamis/data-meshy-product-template/contents/glue_jobs/raw_ingestion.py --jq '.content' | base64 -d > examples/example-domain-repo/products/my_product/raw_ingestion.py
+gh api repos/JawaharRamis/data-meshy-product-template/contents/glue_jobs/silver_transform.py --jq '.content' | base64 -d > examples/example-domain-repo/products/my_product/silver_transform.py
+gh api repos/JawaharRamis/data-meshy-product-template/contents/glue_jobs/gold_aggregate.py --jq '.content' | base64 -d > examples/example-domain-repo/products/my_product/gold_aggregate.py
 ```
 
 ---
@@ -425,5 +427,5 @@ The structured JSON logs from each job include `domain`, `product_name`, `layer`
 - [Add a Product Guide](ADD-PRODUCT.md) -- product creation workflow
 - [Product Spec Reference](../reference/PRODUCT-SPEC.md) -- quality rules and schema fields
 - [Resource Naming Reference](../reference/RESOURCE-NAMING.md) -- S3 bucket and Glue database names
-- Template files: `templates/glue_jobs/*.py`
+- Template files: [data-meshy-product-template/glue_jobs/](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/)
 - Example files: `examples/example-domain-repo/products/customer_orders/glue_jobs/`

@@ -154,7 +154,7 @@ Module source paths:
 | `schema_version` | number | No | `1` | Schema version integer, monotonically increasing. |
 | `sla_refresh_frequency` | string | No | `daily` | SLA refresh frequency string. |
 | `sla_availability` | string | No | `99.9` | SLA availability target as a string. |
-| `medallion_pipeline_asl_path` | string | No | `""` | Path to `templates/step_functions/medallion_pipeline.asl.json`. Must be set by the calling environment. |
+| `medallion_pipeline_asl_path` | string | No | `""` | Path to the medallion pipeline ASL definition. Sourced from the [template repo](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/medallion_pipeline.asl.json). Must be set by the calling environment. |
 | `source_name` | string | No | `default` | Identifier for the source system (used in Secrets Manager secret name). |
 | `tags` | map(string) | No | `{}` | Additional tags merged with the mandatory set. |
 
