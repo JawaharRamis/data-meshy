@@ -695,3 +695,91 @@ resource "aws_iam_role_policy" "mesh_kms_grantor_policy" {
     ]
   })
 }
+
+###############################################################################
+# Role: MeshOnboardingRole
+# Trust: GitHub Actions OIDC — data-meshy repo, main branch ONLY
+# Permissions:
+#   - sts:AssumeRole into domain accounts (OrganizationAccountAccessRole,
+#     DomainGitHubActionsRole, MeshEventRole)
+#   - IAM provisioning in domain accounts (CreateRole, AttachRolePolicy,
+#     PutRolePolicy, CreateOpenIDConnectProvider)
+# Used exclusively by the onboard-domain.yml workflow.
+###############################################################################
+resource "aws_iam_role" "mesh_onboarding" {
+  name                 = "MeshOnboardingRole"
+  description          = "GitHub Actions OIDC role for domain onboarding. Assumes into domain accounts to provision IAM roles and OIDC provider. Main branch only."
+  max_session_duration = 3600
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.github_actions.arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+            # Restrict to the platform repo main branch ONLY — not PRs, not other branches
+            "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = local.mandatory_tags
+}
+
+resource "aws_iam_role_policy" "mesh_onboarding_policy" {
+  name = "MeshOnboardingPolicy"
+  role = aws_iam_role.mesh_onboarding.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AssumeRoleIntoDomainAccounts"
+        Effect = "Allow"
+        Action = ["sts:AssumeRole"]
+        Resource = [
+          # Cross-account entry point bootstrapped by AWS Organizations
+          "arn:aws:iam::*:role/OrganizationAccountAccessRole",
+          # Roles this workflow creates in domain accounts (needed for re-runs / idempotency)
+          "arn:aws:iam::*:role/DomainGitHubActionsRole",
+          "arn:aws:iam::*:role/MeshEventRole"
+        ]
+      },
+      {
+        Sid    = "IAMProvisioningInDomainAccounts"
+        Effect = "Allow"
+        Action = [
+          "iam:CreateRole",
+          "iam:AttachRolePolicy",
+          "iam:PutRolePolicy",
+          "iam:GetRole",
+          "iam:ListRolePolicies",
+          "iam:ListAttachedRolePolicies",
+          "iam:CreateOpenIDConnectProvider",
+          "iam:GetOpenIDConnectProvider",
+          "iam:ListOpenIDConnectProviders"
+        ]
+        # Scoped to the two role names this workflow creates and the OIDC provider
+        Resource = [
+          "arn:aws:iam::*:role/DomainGitHubActionsRole",
+          "arn:aws:iam::*:role/MeshEventRole",
+          "arn:aws:iam::*:oidc-provider/token.actions.githubusercontent.com"
+        ]
+      },
+      {
+        Sid      = "STSGetCallerIdentity"
+        Effect   = "Allow"
+        Action   = ["sts:GetCallerIdentity"]
+        Resource = "*"
+      }
+    ]
+  })
+}
