@@ -1,203 +1,401 @@
 # Guide: Add a Data Product
 
-> **Phase coverage**: Phase 1 | **Last updated**: 2026-04-03
+> **Phase coverage**: Phase 5 | **Last updated**: 2026-05-15
 
 ## Navigation
-<- [Docs home](../README.md)
+
+<- [Docs home](../README.md) | [Add a Domain](ADD-DOMAIN.md) | [Subscription Flow](subscription-flow.md)
 
 ---
 
 ## Goal
 
-Create a new data product within an existing domain by writing the `product.yaml` spec, validating it, provisioning the infrastructure, customizing the Glue jobs, and running the first pipeline refresh.
+Publish a new data product within your domain. This guide is for **domain team members**. You will author two YAML files, push them to your DP repo, and let the platform handle the rest. There is no Terraform to write, no HCL, and no pip CLI to install.
+
+---
+
+## How it works
+
+Your DP repo contains a single GitHub Actions workflow — `on-push.yml` — that fires whenever you push to `main`. It calls `provision-product.yml` in the platform repo (data-meshy), which runs four steps:
+
+1. **Validate** — checks `product.yaml` against the platform schema. Fails fast on any invalid field.
+2. **Register** — SigV4-signed POST to the governance API registers the product in the central DynamoDB catalog.
+3. **Terraform** — writes an ephemeral `main.tf` pointing to the platform module, runs `terraform init` and `terraform apply` against the central S3 state backend, and provisions the Glue table, Step Functions state machine, and supporting resources.
+4. **Rollback** — if Terraform fails, the catalog entry is deleted (best-effort) to keep catalog and infrastructure consistent.
+
+You never run Terraform. You never call the governance API directly. You push YAML and watch Actions.
 
 ---
 
 ## Prerequisites
 
-| Requirement | Details |
+| Requirement | How to verify |
 |---|---|
-| Domain onboarded | The domain must be registered and its infrastructure deployed (see [Add a Domain](ADD-DOMAIN.md)). |
-| AWS SSO access | A profile with `DomainDataEngineer` permission set for the domain account. |
-| Platform access | Permission to trigger `provision-product.yml` reusable workflow, or Terraform access for manual provisioning. |
-| Source data accessible | Source system reachable from the domain account (JDBC connection or S3 path). |
+| Domain is onboarded | `domains/{your_domain}.yaml` exists in data-meshy main. If not, contact the platform team (see [Add a Domain](ADD-DOMAIN.md)). |
+| DP repo exists and is cloned | Your repo was created by the platform team during domain onboarding. Clone it: `git clone https://github.com/{org}/{your-repo}`. |
+| Three repo secrets are set | In your DP repo → Settings → Secrets → Actions: `AWS_ROLE_ARN`, `MESH_API_ENDPOINT`, `MESH_DOMAIN_NAME` must all be present. These are set by the platform team during onboarding. If any are missing, contact the platform team. |
+| Source data is accessible | The S3 path or JDBC source your Glue job will read from must be reachable from your domain account. |
 
 ---
 
-## Steps
+## Step 1: Create the product directory
 
-### 1. Write the product.yaml
+In your DP repo, create a directory for the new product under `products/`:
 
-Start from the template:
-
-```bash
-cp templates/product_spec/product.yaml.template \
-   examples/example-domain-repo/products/my_new_product/product.yaml
+```
+products/
+  revenue_daily/
+    product.yaml
+    infra.yaml
 ```
 
-Edit the file with your product's details. Every field is documented in the [Product Spec Reference](../reference/PRODUCT-SPEC.md). The minimum required structure:
+The directory name must match the `name` field in `product.yaml`. Use snake_case.
+
+---
+
+## Step 2: Write `product.yaml`
+
+`product.yaml` is the **public contract** for your data product. It is what consumers discover, what the governance API validates, and what the platform deploys Iceberg table metadata from. Every field is visible to consumers, so be accurate and deliberate.
+
+Copy this example and fill in your values:
 
 ```yaml
-schema_version: 1
-
-product:
-  name: my_new_product
-  domain: sales
-  description: "Description of the data product"
-  owner: team@company.com
-
-schema:
-  format: iceberg
-  columns:
-    - name: id
-      type: string
-      description: "Primary key"
-      pii: false
-      nullable: false
-    # Add more columns...
-
-quality:
-  rules:
-    - name: id_complete
-      rule: "IsComplete 'id'"
-      threshold: 1.0
-
-classification: internal
-
+name: revenue_daily
+domain: sales
+owner: jawahar@acme.com
+description: Daily revenue aggregated by region and product line, sourced from the ERP system.
+version: "1"
 sla:
-  refresh_frequency: daily
+  freshness_hours: 24
+  tier: gold
+schema:
+  - name: date
+    type: date
+  - name: region
+    type: string
+  - name: product_line
+    type: string
+  - name: gross_revenue
+    type: decimal
+  - name: net_revenue
+    type: decimal
+  - name: transaction_count
+    type: long
+classification: internal
+tags: [finance, revenue, erp]
+quality_rules:
+  - rule: IsComplete("gross_revenue")
+  - rule: IsComplete("date")
+  - rule: ColumnValues("gross_revenue") >= 0
 ```
 
-Key decisions to make:
+### Field reference
 
-| Decision | Field | Guidance |
-|---|---|---|
-| What columns to publish? | `schema.columns` | Only include columns that should be visible to consumers. PII columns get `pii: true`. |
-| How to partition? | `schema.partition_by` | Partition by the most common filter column (usually a date). Use `month` transform for daily data. |
-| Quality threshold? | `quality.minimum_quality_score` | Start at 95. Lower if source data is messy. |
-| Who can access? | `classification` | `internal` for most products. `confidential` if any PII. |
-| How often to refresh? | `sla.refresh_frequency` | `daily` is most common. `on_demand` for static reference data. |
+**`name`** (required)
 
-### 2. Validate and provision the product
+The product identifier. Snake_case. Must be unique within your domain. This becomes the Glue table name (`{domain}_gold.{name}`), the Step Functions state machine name, and the key in the central catalog.
 
-Push `product.yaml` to your domain repo; the `provision-product.yml` reusable workflow triggers and:
+- Example: `revenue_daily`, `customer_orders`, `inventory_snapshot`
+- Cannot contain hyphens. Cannot start with a digit.
+- Cannot be changed after first publish — the Terraform state key is `{domain}/{name}/terraform.tfstate`.
 
-1. **Validates the spec** against `schemas/product_spec.json`
-2. **Checks the product does not already exist** in the `mesh-products` DynamoDB table
-3. **Uploads Glue job templates** to the raw S3 bucket under `pipeline-code/{product_name}/`
-4. **Runs `terraform plan`** for the `data-product` module with variables extracted from the spec
-5. **Runs `terraform apply`** which provisions:
-   - Iceberg table in the gold Glue catalog database
-   - Glue Data Quality ruleset (`{domain}_{product}_dq`)
-   - Step Functions state machine (`{domain}-{product}-pipeline`)
-   - Secrets Manager secret for source credentials
-   - LF-Tags on the table (`classification`, `pii`, `domain`)
-6. **Emits a `ProductCreated` event** to the central EventBridge bus
+**`domain`** (required)
 
-### 4. Set Up Source Credentials
+Your domain name. Must exactly match the `domain_name` registered in `domains/{name}.yaml`. You can find your domain name in the `MESH_DOMAIN_NAME` secret in your DP repo.
 
-If your product reads from a JDBC source, store the credentials in Secrets Manager:
+- Example: `sales`
 
-```bash
-aws secretsmanager put-secret-value \
-  --secret-id mesh/sales/my_source-credentials \
-  --secret-string '{"username":"read_only_user","password":"...","host":"...","port":5432,"database":"orders"}' \
-  --profile sales-engineer
+**`owner`** (required)
+
+Email of the person or team responsible for this product. Receives quality alert notifications and subscription approval requests.
+
+- Example: `jawahar@acme.com`, `sales-data-team@acme.com`
+
+**`description`** (required)
+
+Plain-English description visible to consumers in the catalog. Be specific: what data does it contain, what is the source system, what grain/aggregation?
+
+**`version`** (required)
+
+A quoted integer string. Start at `"1"`. Increment when you make a breaking schema change (removing a column, changing a type). Non-breaking additions (new columns) do not require a version bump but you may bump at your discretion.
+
+**`sla.freshness_hours`** (required)
+
+How many hours after the scheduled run time the data is still considered fresh. The governance platform uses this for freshness alerting.
+
+- `24` for daily pipelines
+- `1` for hourly pipelines
+
+**`sla.tier`** (required)
+
+Always `gold`. Only gold-layer tables are shared on the data mesh. Bronze and silver are never granted to consumers.
+
+**`schema`** (required)
+
+List of columns in the output Iceberg table. Each entry has:
+- `name` — column name (snake_case)
+- `type` — Iceberg type: `string`, `long`, `double`, `decimal`, `date`, `timestamp`, `boolean`, `binary`
+
+Only include columns that should be visible to consumers. PII columns should either be excluded entirely or left out of the schema — the platform's Lake Formation column-level filtering will block any column you mark as PII in a future version of the spec. For now, simply do not include columns you do not want shared.
+
+**`classification`** (required)
+
+Data sensitivity classification:
+- `internal` — accessible to any verified internal domain
+- `confidential` — restricted; subscription approval is required and subject to additional review
+
+**`tags`** (optional)
+
+Free-form list of strings for catalog discoverability. Use consistent terms agreed on with your team.
+
+**`quality_rules`** (required, at least one)
+
+Great Expectations-style rules that run after every pipeline execution. Available rule functions:
+- `IsComplete("column")` — no nulls in the column
+- `ColumnValues("column") >= value` — all values pass the comparison
+- `IsUnique("column")` — no duplicate values
+- `RowCount() >= value` — output must have at least N rows
+
+The pipeline fails and an alert fires if any rule does not pass. Start with completeness checks on your primary key and key metric columns.
+
+---
+
+## Step 3: Write `infra.yaml`
+
+`infra.yaml` is the **private infrastructure config** for your product. It is not visible to consumers. It controls the Glue job settings, Iceberg table properties, and the source S3 path that the ingestion job reads from.
+
+Copy this example and fill in your values:
+
+```yaml
+platform_version: v1.2
+glue:
+  dpu: 2
+  schedule: "cron(0 3 * * ? *)"
+  worker_type: G.1X
+iceberg:
+  partition_keys: [date]
+  compaction: true
+  retention_days: 730
+s3:
+  source_prefix: s3://sales-raw/revenue/
 ```
 
-The secret ARN should match what is specified in `product.yaml` under `lineage.sources[].credentials_secret_arn`.
+### Field reference
 
-### 5. Customize the Glue Jobs
+**`platform_version`** (required)
 
-The template Glue jobs are copied to S3 but need customization for your specific data source and transforms. Copy the templates to your product directory and modify them:
+The version of the platform module to use. This controls which version of the Terraform module at `JawaharRamis/data-meshy-product-template` is applied to your product. Your domain team controls upgrade timing — the platform team publishes new versions and you opt in by editing this field.
 
-```bash
-mkdir -p examples/example-domain-repo/products/my_new_product/
+- Format: `v{major}.{minor}` (e.g., `v1.2`)
+- Check `upgrade-platform.yml` in your DP repo for the upgrade workflow
 
-# Glue job templates are now in the template repo. Clone or download them:
-# https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/
-gh api repos/JawaharRamis/data-meshy-product-template/contents/glue_jobs/raw_ingestion.py --jq '.content' | base64 -d > examples/example-domain-repo/products/my_new_product/raw_ingestion.py
-gh api repos/JawaharRamis/data-meshy-product-template/contents/glue_jobs/silver_transform.py --jq '.content' | base64 -d > examples/example-domain-repo/products/my_new_product/silver_transform.py
-gh api repos/JawaharRamis/data-meshy-product-template/contents/glue_jobs/gold_aggregate.py --jq '.content' | base64 -d > examples/example-domain-repo/products/my_new_product/gold_aggregate.py
+**`glue.dpu`** (required)
+
+Number of Glue Data Processing Units to allocate to this product's Glue job. Each DPU is 4 vCPU + 16 GB RAM. Start small and increase if the job is slow.
+
+- Minimum: `2`
+- Typical daily aggregation: `2`–`4`
+- Large joins or complex transforms: `8`–`16`
+
+**`glue.schedule`** (required)
+
+Cron expression for the Step Functions state machine trigger. Uses AWS EventBridge cron syntax (UTC, 6 fields including year).
+
+- `"cron(0 3 * * ? *)"` — 3:00 AM UTC daily
+- `"cron(0 */6 * * ? *)"` — every 6 hours
+- `"cron(0 8 ? * MON *)"` — Monday 8:00 AM UTC
+
+**`glue.worker_type`** (required)
+
+Glue worker type. Must match the DPU count:
+- `G.1X` — 1 DPU per worker (use with `dpu: 2`–`8`)
+- `G.2X` — 2 DPU per worker (use with `dpu: 4`+, better for memory-intensive jobs)
+
+**`iceberg.partition_keys`** (required)
+
+List of column names to partition the Iceberg table by. Choose the column(s) that consumers most commonly filter on. Poor partition choices cause expensive full-table scans.
+
+- `[date]` — almost always correct for daily time-series data
+- `[date, region]` — if most queries filter by both date and region
+- `[]` — only for very small reference tables (< 1 million rows)
+
+**`iceberg.compaction`** (required)
+
+Whether to run Iceberg compaction after every write. Set to `true` for most products — it merges small files and improves query performance. Set to `false` only for products with very infrequent writes where compaction overhead is not justified.
+
+**`iceberg.retention_days`** (required)
+
+Number of days to retain Iceberg table snapshots (data history). Older snapshots are expired by the maintenance job.
+
+- `730` (2 years) — standard for finance and compliance data
+- `365` (1 year) — typical for operational data
+- `90` — for high-volume, low-retention operational logs
+
+**`s3.source_prefix`** (required)
+
+The S3 prefix where your raw source data lands. The Glue ingestion job reads from this location. The prefix must be accessible from your domain account.
+
+- Example: `s3://sales-raw/revenue/`
+- The Glue job expects partitioned data under this prefix (e.g., `s3://sales-raw/revenue/year=2026/month=05/`)
+
+---
+
+## Step 4: Push to main and watch Actions
+
+Once both files are written and look correct, push to the `main` branch of your DP repo:
+
+```
+git add products/revenue_daily/
+git commit -m "add revenue_daily product"
+git push origin main
 ```
 
-See the [Customize Pipeline Guide](CUSTOMIZE-PIPELINE.md) for detailed instructions on modifying each job.
+`on-push.yml` fires immediately. Navigate to **Actions** in your DP repo to watch the workflow.
 
-After customizing, upload the updated scripts:
+The `provision-product.yml` workflow (running in data-meshy) has two jobs:
 
-```bash
-aws s3 cp examples/example-domain-repo/products/my_new_product/raw_ingestion.py \
-  s3://sales-raw-ACCOUNT_ID/pipeline-code/my_new_product/raw_ingestion.py \
-  --profile sales-engineer
+### Job 1: `validate`
 
-aws s3 cp examples/example-domain-repo/products/my_new_product/silver_transform.py \
-  s3://sales-raw-ACCOUNT_ID/pipeline-code/my_new_product/silver_transform.py \
-  --profile sales-engineer
+Checks `product.yaml` against `schemas/product_spec.json` in the platform repo. This is a hard gate — if validation fails, nothing is provisioned. Common failures and fixes:
 
-aws s3 cp examples/example-domain-repo/products/my_new_product/gold_aggregate.py \
-  s3://sales-raw-ACCOUNT_ID/pipeline-code/my_new_product/gold_aggregate.py \
-  --profile sales-engineer
+| Error | Fix |
+|---|---|
+| `"sla.tier" must be "gold"` | Change `tier` to `gold` |
+| `"name" does not match pattern` | Remove hyphens from the product name |
+| `"domain" does not match registered domain` | Ensure `domain` matches `MESH_DOMAIN_NAME` secret exactly |
+| `"quality_rules" must have at least one item` | Add at least one quality rule |
+| `"version" must be a quoted string` | Change `version: 1` to `version: "1"` |
+
+### Job 2: `provision`
+
+Four sub-steps run in sequence:
+
+1. **Register** — SigV4-signed POST to `MESH_API_ENDPOINT/products` with your `product.yaml` content. Creates a `PROVISIONING` record in `mesh-products` DynamoDB.
+2. **Init** — assumes `DomainGitHubActionsRole` via OIDC. Parses `infra.yaml` into Terraform `-var` flags. Writes an ephemeral `main.tf` pointing to the platform module at the `platform_version` you specified. Runs `terraform init` with the central S3 backend at key `{domain}/{product_name}/terraform.tfstate`.
+3. **Apply** — runs `terraform apply`. Provisions: Glue database and Iceberg table in the gold catalog, Glue Data Quality ruleset, Step Functions state machine, IAM execution role for Glue, EventBridge schedule rule.
+4. **Finalize** — updates the catalog record to `ACTIVE`. If Terraform fails, deletes the catalog record (best-effort) so the catalog stays consistent with actual infrastructure.
+
+A successful run ends with a green checkmark and a log line like:
+
 ```
-
-### 6. Run the First Pipeline Refresh
-
-Trigger the Step Functions state machine directly via the AWS Console or CLI:
-
-```bash
-aws stepfunctions start-execution \
-  --state-machine-arn "arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:sales-my_new_product-pipeline" \
-  --profile sales-engineer
-```
-
-### 7. Verify the Product
-
-Check the product in `mesh-products` DynamoDB table, or (platform engineers only):
-
-```bash
-python tools/catalog.py describe sales my_new_product
-```
-
-Query the data:
-
-```sql
-SELECT * FROM sales_gold.my_new_product LIMIT 10;
+Product sales/revenue_daily provisioned successfully (version v1.2)
 ```
 
 ---
 
-## Verify
+## Step 5: Verify the product
 
-| Check | Expected Result |
-|---|---|
-| `mesh-products` DynamoDB record shows `ACTIVE` | Product is registered and refreshed |
-| Quality score >= `minimum_quality_score` | Data passed all DQDL rules |
-| Rows written > 0 | Data flowed through the pipeline |
-| `ProductRefreshed` event emitted | Check EventBridge metrics or `mesh-audit-log` |
-| Iceberg table exists in Glue Catalog | `sales_gold.my_new_product` is queryable via Athena |
-| LF-Tags applied | Table has `classification`, `pii`, `domain` tags |
+**Check the Actions tab** in your DP repo — both `validate` and `provision` must be green.
+
+**Check the catalog via the platform catalog tool** (platform engineers):
+
+```
+python tools/catalog.py describe sales revenue_daily
+```
+
+Expected output:
+
+```
+name:        revenue_daily
+domain:      sales
+status:      ACTIVE
+version:     1
+tier:        gold
+platform:    v1.2
+table:       sales_gold.revenue_daily
+state_key:   sales/revenue_daily/terraform.tfstate
+created_at:  2026-05-15T...
+```
+
+**Verify the Glue table exists:**
+
+In the AWS Console for your domain account, navigate to **AWS Glue → Data Catalog → Databases** and look for `{domain}_gold`. The table `revenue_daily` should appear there.
+
+**Query via Athena:**
+
+In the domain account's Athena console, select the `{domain}_gold` database and run:
+
+```sql
+SELECT * FROM revenue_daily LIMIT 10;
+```
+
+An empty result (0 rows) is expected before the first pipeline run. The table schema (columns) should already be present.
+
+---
+
+## Step 6: Customize your Glue jobs
+
+The template repo pre-populates `glue_jobs/` in your DP repo with stub Python scripts. These stubs read from `s3.source_prefix` and write Iceberg output to the gold table, but the transformation logic is intentionally minimal.
+
+Edit the files in `glue_jobs/` in your DP repo to add your business logic:
+
+```
+glue_jobs/
+  raw_ingestion.py     ← customize: source format, parsing, schema mapping
+  gold_aggregate.py    ← customize: aggregation logic, column derivations
+```
+
+**Key things to customize in `raw_ingestion.py`:**
+- File format reader (`csv`, `json`, `parquet`, `orc`)
+- Column renames to match your `product.yaml` schema
+- Any type casting
+
+**Key things to customize in `gold_aggregate.py`:**
+- Aggregation expressions (SUM, AVG, COUNT)
+- Window functions if needed
+- Any business-rule filters
+
+After editing, push the changes to `main`. `on-push.yml` triggers again — but since `product.yaml` and `infra.yaml` are unchanged, the Terraform `plan` will show no infrastructure changes, and the run completes quickly. The updated Glue job scripts are uploaded to S3 as part of the provision job.
+
+Do not modify `step_functions/` unless instructed by the platform team — the state machine definition is managed by Terraform.
+
+---
+
+## Step 7: Run the first pipeline
+
+The Step Functions state machine is provisioned but has not run yet. Trigger it manually for the first run:
+
+1. In the domain account AWS Console, navigate to **Step Functions → State machines**
+2. Search for `{domain}-{product_name}-pipeline` (e.g., `sales-revenue_daily-pipeline`)
+3. Click **Start execution**
+4. Leave the input as the default `{}` or pass `{"manual_trigger": true}`
+5. Click **Start execution**
+
+Watch the execution graph. The standard pipeline runs:
+
+```
+Ingest (Glue) → Transform (Glue) → Quality Check → Notify → Done
+```
+
+A successful first execution produces rows in the Iceberg table. Verify:
+
+```sql
+SELECT COUNT(*) FROM revenue_daily;
+```
+
+After the first successful manual run, the EventBridge schedule (from `glue.schedule` in `infra.yaml`) will take over and run automatically.
 
 ---
 
 ## Troubleshooting
 
-| Problem | Cause | Solution |
+| Problem | Cause | Fix |
 |---|---|---|
-| `Spec validation failed` | Missing or invalid fields | Check required fields: `schema_version`, `product.name`, `product.domain`, `product.owner`, `sla.refresh_frequency`, `schema.columns`, `quality.rules`, `classification`. |
-| `Product already exists` | Duplicate product name in domain | Use a different name, or delete the existing DynamoDB record and re-run the workflow. |
-| `Pipeline is already running` | Concurrent execution lock active | Wait for current run to finish. Check `mesh-pipeline-locks` table. Locks auto-expire after 3 hours (TTL). |
-| `Quality check failed` | DQDL rules below threshold | Review the `failed_rules` in the `QualityAlert` event. Adjust data quality or lower `minimum_quality_score`. |
-| `UndeclaredColumnError` in gold job | Output has columns not in `product.yaml` | Either add the column to the spec, or remove it from the transform logic. |
-| `SchemaValidationError` in silver job | Raw data missing expected columns | Check source data matches the expected schema. Add the column to `product.yaml` if it should exist. |
-| Glue job fails with connection error | JDBC source not reachable | Verify the Glue connection exists and the VPC/subnet configuration is correct. Check the secret in Secrets Manager. |
-| `terraform plan` shows no changes | Product already provisioned | This is normal if the product was already created. Trigger the Step Functions state machine to run the pipeline. |
+| `validate` job fails with schema errors | Invalid `product.yaml` fields | Fix the flagged fields and push again. |
+| `provision` fails with `CONFLICT: product already exists` | A product with this name already exists in the catalog | Use a different `name`, or contact the platform team to delete the existing record if it is stale. |
+| `provision` fails with `AccessDenied` on `sts:AssumeRoleWithWebIdentity` | `DomainGitHubActionsRole` trust policy does not match this repo/branch | Confirm the `repo_pattern` set during domain onboarding covers this repo. Contact the platform team to update the role. |
+| `provision` fails at `terraform init` | Central S3 backend unreachable or state key conflict | Check platform team — the `mesh-tf-state` bucket or DynamoDB lock table may need attention. |
+| `provision` fails at `terraform apply` | Glue or LF resource conflict | Check the Terraform error in the logs. Usually a naming conflict or LF quota. |
+| Glue job fails with `S3 access denied` | `DomainGitHubActionsRole` cannot read `s3.source_prefix` | Confirm the bucket policy allows the role, or contact the platform team to add the prefix to the role policy. |
+| Step Functions execution fails at Quality Check | Quality rules not met | Review which rules failed in the execution output. Fix the source data or adjust the rules in `product.yaml` and push. |
+| Athena query returns no rows | First pipeline has not run yet | Trigger the Step Functions state machine manually (Step 7). |
+| `UndeclaredColumnError` in Glue job | Glue job outputs a column not in `product.yaml` schema | Either add the column to `product.yaml` schema or remove it from the Glue job output. |
 
 ---
 
 ## See Also
 
-- [Product Spec Reference](../reference/PRODUCT-SPEC.md) -- complete field documentation
-- [Customize Pipeline Guide](CUSTOMIZE-PIPELINE.md) -- modifying Glue job transforms
-- [Event Schemas Reference](../reference/EVENT-SCHEMAS.md) -- events emitted during product lifecycle
-- [Quick Start Guide](QUICK-START.md) -- end-to-end walkthrough
-- Product template: `templates/product_spec/product.yaml.template`
-- Example product: `examples/example-domain-repo/products/customer_orders/`
+- [Add a Domain Guide](ADD-DOMAIN.md) — domain onboarding (platform engineers)
+- [Subscription Flow](subscription-flow.md) — how consumers subscribe to this product
+- [Product Spec Reference](../reference/PRODUCT-SPEC.md) — complete field documentation
+- [Architecture Document](../../plan/ARCHITECTURE.md) — gold-layer-only sharing, Lake Formation model
