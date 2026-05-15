@@ -1,0 +1,134 @@
+name: Deprecate Data Product
+
+# Reusable workflow called by domain team repos to deprecate a data product.
+# Posts a deprecation request to the governance API (SigV4-signed) and logs
+# the computed sunset date on success.
+#
+# TODO (#22): When the template repo is created, update
+# .github/workflows/deprecate.yml in the template repo to reference this
+# workflow and remove the `if: false` guard added in #22.
+
+on:
+  workflow_call:
+    inputs:
+      product_name:
+        description: "Name of the data product to deprecate."
+        type: string
+        required: true
+      sunset_days:
+        description: "Number of days until the product is fully retired."
+        type: number
+        required: true
+      reason:
+        description: "Human-readable reason for deprecation."
+        type: string
+        required: false
+        default: ""
+    secrets:
+      AWS_ROLE_ARN:
+        description: "Full ARN of the DomainGitHubActionsRole to assume via OIDC."
+        required: true
+      MESH_API_ENDPOINT:
+        description: "Base URL of the catalog governance API (no trailing slash)."
+        required: true
+      MESH_DOMAIN_NAME:
+        description: "Domain name used as the catalog namespace."
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deprecate:
+    name: Deprecate Data Product
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
+
+      # -----------------------------------------------------------------------
+      # Configure AWS credentials via OIDC
+      # -----------------------------------------------------------------------
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: DeprecateProduct-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # -----------------------------------------------------------------------
+      # POST deprecation request to governance API (SigV4-signed)
+      # -----------------------------------------------------------------------
+      - name: Deprecate product via governance API
+        env:
+          MESH_API_ENDPOINT: ${{ secrets.MESH_API_ENDPOINT }}
+          MESH_DOMAIN_NAME: ${{ secrets.MESH_DOMAIN_NAME }}
+          PRODUCT_NAME: ${{ inputs.product_name }}
+          SUNSET_DAYS: ${{ inputs.sunset_days }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          python - <<'PYEOF'
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          import botocore.session
+          from botocore.auth import SigV4Auth
+          from botocore.awsrequest import AWSRequest
+
+          endpoint = os.environ["MESH_API_ENDPOINT"]
+          domain_name = os.environ["MESH_DOMAIN_NAME"]
+          product_name = os.environ["PRODUCT_NAME"]
+          sunset_days = int(os.environ["SUNSET_DAYS"])
+          reason = os.environ.get("REASON", "")
+
+          url = f"{endpoint}/products/{domain_name}/{product_name}/deprecate"
+
+          payload = {"sunset_days": sunset_days}
+          if reason:
+              payload["reason"] = reason
+          body = json.dumps(payload).encode("utf-8")
+
+          # Sign with SigV4 using botocore (pre-installed on ubuntu-latest)
+          session = botocore.session.get_session()
+          credentials = session.get_credentials().get_frozen_credentials()
+          region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+
+          request = AWSRequest(
+              method="POST",
+              url=url,
+              data=body,
+              headers={"Content-Type": "application/json"},
+          )
+          SigV4Auth(credentials, "execute-api", region).add_auth(request)
+
+          prepared = request.prepare()
+          req = urllib.request.Request(
+              prepared.url,
+              data=body,
+              headers=dict(prepared.headers),
+              method="POST",
+          )
+
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  response_body = json.loads(resp.read())
+                  print(f"Deprecation accepted: {response_body}")
+          except urllib.error.HTTPError as e:
+              error_body = e.read().decode("utf-8", errors="replace")
+              print(f"ERROR: Governance API returned {e.code}: {error_body}", file=sys.stderr)
+              sys.exit(1)
+          PYEOF
+
+      # -----------------------------------------------------------------------
+      # Log computed sunset date
+      # -----------------------------------------------------------------------
+      - name: Log sunset date
+        run: |
+          python -c "from datetime import datetime, timedelta; d = datetime.utcnow() + timedelta(days=${{ inputs.sunset_days }}); print(f'Sunset date: {d.strftime(\"%Y-%m-%d\")}')"
