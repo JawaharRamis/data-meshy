@@ -232,20 +232,16 @@ jobs:
           PYEOF
 
       # -----------------------------------------------------------------------
-      # Step 4: Terraform apply — STUB (if: false until #22 + #26 complete)
-      # NOTE: template repo (#22) pending human action — this step is a stub
-      #       until #22 + #26 complete. Module source below is the intended
-      #       final form; do not remove the if: false guards before #22 merges.
+      # Step 4: Terraform apply — resolves module from template repo at
+      # the platform_version pinned in infra.yaml.
       # -----------------------------------------------------------------------
       - name: Setup Terraform
-        if: false  # Stub — remove guard after template repo #22 is created
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
         with:
           terraform_version: "1.7.5"
           terraform_wrapper: true
 
       - name: Terraform Apply
-        if: false  # Stub — remove guard after template repo #22 is created
         id: tf-apply
         env:
           PLATFORM_VERSION: ${{ steps.parse-infra.outputs.platform_version }}

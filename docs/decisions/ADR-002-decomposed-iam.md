@@ -81,5 +81,5 @@ We decompose IAM into function-scoped roles with permission boundaries. No god-r
 - [Architecture: Security Architecture](../../plan/ARCHITECTURE.md) -- full security section with S3 bucket policies, encryption, SCPs
 - [Architecture: Authentication Model](../../plan/ARCHITECTURE.md) -- SSO, OIDC, CLI authentication flows
 - [Governance IAM](../../infra/modules/governance/iam.tf) -- Terraform definitions for central roles
-- [Domain IAM](../../infra/modules/domain-account/iam.tf) -- Terraform definitions for domain roles
+- [Domain IAM](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/modules/domain-account) -- Terraform definitions for domain roles (now in template repo)
 - [Architecture: Event Validation](../../plan/ARCHITECTURE.md) -- event source validation and injection prevention

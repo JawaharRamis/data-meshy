@@ -1,0 +1,129 @@
+name: Notify Domain Teams of Platform Upgrade
+
+# Triggered automatically when a new GitHub Release is published on data-meshy.
+# Reads all registered domain repos from domains/*.yaml and opens a GitHub Issue
+# in each repo notifying the domain team that a new platform version is available.
+# Idempotent: skips repos that already have a matching upgrade issue.
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  notify:
+    name: Notify registered domain repos
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Notify domain repos
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PYEOF'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          import yaml
+
+          version = os.environ["VERSION"]
+          release_body = os.environ.get("RELEASE_BODY", "")
+          release_url = os.environ.get("RELEASE_URL", "")
+
+          issue_title = f"Platform {version} available — upgrade when ready"
+
+          domain_files = [
+              p for p in Path("domains").glob("*.yaml")
+              if p.name != "example.yaml"
+          ]
+
+          if not domain_files:
+              print("No domain files found in domains/ — nothing to notify.")
+              sys.exit(0)
+
+          for domain_file in sorted(domain_files):
+              with open(domain_file) as f:
+                  domain = yaml.safe_load(f)
+
+              github_repo = domain.get("github_repo", "").strip()
+              if not github_repo:
+                  print(f"SKIP {domain_file.name}: no github_repo field")
+                  continue
+
+              # Idempotency check: does the issue already exist?
+              result = subprocess.run(
+                  [
+                      "gh", "issue", "list",
+                      "--repo", github_repo,
+                      "--search", issue_title,
+                      "--json", "number",
+                      "--jq", "length",
+                  ],
+                  capture_output=True,
+                  text=True,
+              )
+              existing_count = result.stdout.strip()
+              if existing_count != "0":
+                  print(f"SKIP {github_repo}: upgrade issue already exists ({existing_count} found)")
+                  continue
+
+              # Build issue body
+              body_parts = [
+                  f"## Platform {version} is available",
+                  "",
+                  f"The data-meshy platform team has released **{version}**.",
+                  "",
+              ]
+              if release_body:
+                  body_parts += [
+                      "### Changelog excerpt",
+                      "",
+                      release_body[:2000],  # truncate very long release notes
+                      "",
+                  ]
+              body_parts += [
+                  f"[Full release notes]({release_url})",
+                  "",
+                  "### How to upgrade",
+                  "",
+                  f"1. Go to **Actions → Upgrade Platform Version → Run workflow** in this repo.",
+                  f"2. Set `target_version` to `{version}`.",
+                  "3. Review and merge the PR that the workflow opens.",
+                  "",
+                  "Upgrade at your own pace — your current version will continue to work until it reaches end-of-life.",
+              ]
+
+              issue_body = "\n".join(body_parts)
+
+              create_result = subprocess.run(
+                  [
+                      "gh", "issue", "create",
+                      "--repo", github_repo,
+                      "--title", issue_title,
+                      "--body", issue_body,
+                  ],
+                  capture_output=True,
+                  text=True,
+              )
+              if create_result.returncode == 0:
+                  print(f"OK  {github_repo}: created issue — {create_result.stdout.strip()}")
+              else:
+                  print(f"ERR {github_repo}: {create_result.stderr.strip()}", file=sys.stderr)
+          PYEOF
