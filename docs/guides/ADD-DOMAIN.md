@@ -1,196 +1,314 @@
 # Guide: Add a New Domain
 
-> **Phase coverage**: Phase 1 | **Last updated**: 2026-04-03
+> **Phase coverage**: Phase 5 | **Last updated**: 2026-05-15
 
 ## Navigation
-<- [Docs home](../README.md)
+
+<- [Docs home](../README.md) | [Add a Product](ADD-PRODUCT.md) | [Subscription Flow](subscription-flow.md)
 
 ---
 
 ## Goal
 
-Add a new domain (e.g., `marketing`) to the data mesh by provisioning its AWS account infrastructure, registering it in the central governance catalog, and preparing it for data product creation.
+Register a new domain with the data mesh platform. This guide is for **platform engineers only**. Domain onboarding provisions cross-account IAM roles, creates the domain's GitHub repo from the platform template, registers the domain in `domains/`, and opens a quickstart checklist for the domain team. Domain teams never touch this workflow.
+
+---
+
+## How it works
+
+All domain onboarding is driven by a single GitHub Actions workflow: `onboard-domain.yml` in this repository. You fill in six inputs in the GitHub Actions UI, click Run, and the workflow does everything. There is no Terraform to run locally, no HCL to write, and no pip CLI.
+
+The workflow runs four jobs in sequence:
+
+| Job | What it does |
+|---|---|
+| `validate` | Checks inputs (name pattern, account ID format, email format). Fails fast before any AWS calls. |
+| `provision-iam` | Assumes `MeshOnboardingRole`, then chains into the domain account. Creates GitHub OIDC provider, `DomainGitHubActionsRole`, and `MeshEventRole`. Commits `domains/{domain_name}.yaml` to main. Rolls back the commit if IAM provisioning fails. |
+| `provision-aws` | Registers the Lake Formation S3 location (best-effort). Creates the EventBridge cross-account forwarding rule (best-effort). |
+| `bootstrap-repo` | Instantiates `data-meshy-product-template` as the new DP repo, sets three repo secrets, and opens the quickstart checklist issue. |
 
 ---
 
 ## Prerequisites
 
-| Requirement | Details |
+Before triggering the workflow, confirm all of the following:
+
+| Requirement | How to verify |
 |---|---|
-| Central governance deployed | The `governance` Terraform module must be applied and its outputs available. |
-| AWS account for the new domain | A separate AWS account (recommended) or a dedicated region/profile in an existing account. |
-| AWS SSO access | A profile with `MeshPlatformAdmin` permission set (central account) and a profile for the new domain account. |
-| Terraform >= 1.6.0 | Installed and in `$PATH`. |
-| Platform access | Permission to trigger `onboard-domain.yml` in the platform repo, or ability to run Terraform locally. |
-| Governance module outputs | `central_event_bus_arn`, `mesh_catalog_writer_role_arn`, `central_account_id`, `aws_org_id`. |
+| Central governance is deployed | `infra/environments/central/` has been applied; `mesh-tf-state` S3 bucket exists. |
+| `MeshOnboardingRole` exists in central account | Check IAM in the central governance account — this role is provisioned by the governance module. |
+| `ORG_PAT` secret is set on this repo | GitHub → Settings → Secrets → Actions → `ORG_PAT` present. This token needs `repo` and `admin:org` scopes for the GitHub org. |
+| AWS account is in the org | The 12-digit account ID belongs to the AWS Organization managed by the platform. |
+| Domain name is not already registered | Check `domains/` in this repo — no file named `{domain_name}.yaml` should exist. |
+| GitHub org access | You have permission to trigger `workflow_dispatch` on `onboard-domain.yml` in this repo. |
 
 ---
 
-## Steps
+## Step 1: Preflight checks
 
-### 1. Collect Governance Module Outputs
+Before triggering the workflow, do a quick sanity check:
 
-From the central account, gather the required ARNs and IDs:
+**Check the domain does not already exist:**
 
-```bash
-cd infra/environments/central/
-terraform output central_event_bus_arn
-terraform output mesh_catalog_writer_role_arn
-terraform output quality_alert_sns_topic_arn
-terraform output central_kms_key_arn
+```
+ls domains/
 ```
 
-Record these values. You will need them for the domain's `terraform.tfvars`.
+If `{domain_name}.yaml` is already present, the domain is already registered. Do not re-run onboarding — it will fail at the validate job.
 
-### 2. Prepare the AWS Account
+**Check the AWS account is not already onboarded:**
 
-Ensure the new domain's AWS account has:
-
-- **AWS Organization membership**: The account must be in the same AWS Organization. Note the Organization ID (`o-xxxxxxxxxx`).
-- **SSO configuration**: IAM Identity Center permission sets (`DomainAdmin`, `DomainDataEngineer`, `DomainConsumer`) must be assigned to the appropriate users/groups for this account.
-- **No conflicting resources**: The account should not have existing S3 buckets or Glue databases that match the naming conventions (`{domain}-raw-*`, `{domain}_raw`, etc.).
-
-### 3. Trigger `onboard-domain.yml`
-
-Trigger the `onboard-domain.yml` reusable workflow in the platform repo with the domain parameters.
-
-The workflow automatically:
-
-1. **Validates inputs** -- domain name must be alphanumeric + hyphens, max 32 characters. Account ID must be 12 digits. Owner must be a valid email.
-2. **Applies Terraform** -- runs `terraform plan` + `terraform apply` for the domain-account module
-3. **Emits `DomainOnboarded` event** -- registers the domain in the central `mesh-domains` DynamoDB table
-
-Alternatively, apply Terraform manually using `examples/example-domain-repo/` as a reference.
-
-### 4. Configure Terraform Variables
-
-Open `infra/terraform.tfvars` in your domain repo and update the cross-account references
-with actual values from the governance module. See `examples/example-domain-repo/infra/terraform.tfvars`
-for a reference:
-
-```hcl
-domain                = "marketing"
-account_id            = "987654321098"
-owner                 = "marketing-data-team@company.com"
-aws_region            = "us-east-1"
-central_event_bus_arn = "arn:aws:events:us-east-1:000000000000:event-bus/mesh-central-bus"
+```
+python tools/catalog.py browse --domain <name>
 ```
 
-`main.tf` uses `git::` module sources pinned to the platform version:
+(Platform engineers only. If the command returns a record, the domain is already in the catalog.)
 
-```hcl
-module "domain_account" {
-  source                = "git::https://github.com/JawaharRamis/data-meshy-platform.git//infra/modules/domain-account?ref=v1.0.0"
-  domain                = var.domain
-  account_id            = var.account_id
-  owner                 = var.owner
-  central_event_bus_arn = var.central_event_bus_arn
-}
-```
+**Confirm the account ID:**
 
-### 5. Configure the Terraform Backend
-
-Edit `infra/backend.tf` in your domain repo and fill in the bucket name and DynamoDB lock table:
-
-```hcl
-terraform {
-  backend "s3" {
-    bucket         = "data-meshy-tfstate-domain-marketing-ACCOUNT_ID"
-    key            = "marketing/terraform.tfstate"
-    region         = "us-east-1"
-    encrypt        = true
-    dynamodb_table = "data-meshy-tflock-domain-marketing"
-  }
-}
-```
-
-The S3 bucket and DynamoDB lock table must be provisioned before running `terraform init`. For initial setup:
-
-```bash
-terraform init -backend=false
-```
-
-### 6. Deploy the Domain Infrastructure
-
-```bash
-cd infra/
-
-# Initialize (use -backend=false on first run if backend not yet provisioned)
-terraform init
-
-# Review the plan
-terraform plan
-
-# Apply
-terraform apply
-```
-
-This provisions the following resources in the domain account:
-
-| Resource | Name | Purpose |
-|---|---|---|
-| S3 buckets | `marketing-raw-*`, `marketing-silver-*`, `marketing-gold-*` | Medallion storage layers |
-| KMS key | `alias/mesh-marketing` | Per-domain encryption key |
-| Glue databases | `marketing_raw`, `marketing_silver`, `marketing_gold` | Data catalog databases |
-| IAM roles | `DomainAdminRole`, `DomainDataEngineerRole`, etc. | Scoped access roles |
-| EventBridge bus | `mesh-domain-bus` | Forwards to central bus |
-| Lake Formation registration | S3 paths + LF-Tags | Governance-ready |
-
-### 7. Verify the Domain
-
-Check domain registration in the `mesh-domains` DynamoDB table, or (platform engineers only):
-
-```bash
-python tools/catalog.py --profile central-admin browse --domain marketing
-```
-
-Verify infrastructure in the domain account:
-
-```bash
-# S3 buckets exist
-aws s3 ls --profile marketing-admin | grep marketing
-
-# Glue databases exist
-aws glue get-databases --profile marketing-admin
-
-# EventBridge bus forwards to central
-aws events describe-event-bus --name mesh-domain-bus --profile marketing-admin
-```
+Get the exact 12-digit AWS account ID for the domain account. The `onboard-domain.yml` workflow validates the format but cannot verify org membership at input time — a wrong account ID will fail during the IAM provisioning job.
 
 ---
 
-## Verify
+## Step 2: Trigger `onboard-domain.yml`
 
-| Check | Expected Result |
-|---|---|
-| `mesh-domains` DynamoDB table | `marketing` listed with status `ACTIVE` |
-| `python tools/catalog.py browse --domain marketing` | Shows account ID, owner, 0 active products (platform engineers only) |
-| 3 S3 buckets exist in domain account | `marketing-raw-*`, `marketing-silver-*`, `marketing-gold-*` |
-| 3 Glue databases exist | `marketing_raw`, `marketing_silver`, `marketing_gold` |
-| KMS key exists | `alias/mesh-marketing` with correct key policy |
-| EventBridge forwarding works | Domain bus has rule forwarding `source: datameshy` to central bus |
-| `DomainOnboarded` event received | Check central bus metrics or `mesh-audit-log` table |
+Navigate to **Actions → onboard-domain.yml → Run workflow** in this repository.
+
+Fill in all six inputs:
+
+### `domain_name` — required
+
+The snake_case identifier for the domain. This becomes the primary key in `domains/`, the prefix for all domain resources, and the `MESH_DOMAIN_NAME` secret in the DP repo.
+
+- Pattern: `^[a-z][a-z0-9_]*$` (must start with a letter; only lowercase letters, digits, underscores)
+- Examples: `sales`, `marketing`, `supply_chain`, `hr_analytics`
+- Maximum length: 63 characters (AWS resource naming limit)
+- Cannot be changed after onboarding without manual cleanup
+
+### `account_id` — required
+
+The 12-digit AWS account ID for the domain's dedicated AWS account.
+
+- Format: exactly 12 digits, no hyphens or spaces
+- Example: `123456789012`
+- This account must already exist in your AWS Organization before onboarding
+
+### `aws_region` — required
+
+The primary AWS region where the domain's infrastructure will be deployed.
+
+- Format: standard AWS region slug
+- Example: `ap-southeast-2`, `us-east-1`, `eu-west-1`
+- Must match the region where central governance is deployed, or be a region with EventBridge cross-region rules configured
+
+### `owner_email` — required
+
+The email address of the domain data owner. This address receives workflow failure notifications and appears in the `domains/` registry.
+
+- Format: valid email address
+- Example: `jawahar@acme.com`, `sales-data-team@acme.com`
+
+### `github_repo` — required
+
+The `org/repo` slug for the **new** DP repo that the workflow will create from the template. This repo must not exist yet — the workflow creates it.
+
+- Format: `{org}/{repo-name}`
+- Example: `JawaharRamis/sales-products`
+- The repo name becomes the domain team's home for all product YAML files
+
+### `repo_pattern` — required
+
+The OIDC audience glob pattern that the `DomainGitHubActionsRole` trust policy uses to restrict which GitHub repos can assume the role.
+
+- Format: OIDC glob matching `repo:{org}/{pattern}:ref:refs/heads/main`
+- Example: `JawaharRamis/sales-*` (trusts any repo matching `sales-*` in the org)
+- Be as specific as possible — a wildcard like `JawaharRamis/*` is too broad
+
+### Sample filled-in form
+
+```
+domain_name:   sales
+account_id:    123456789012
+aws_region:    ap-southeast-2
+owner_email:   jawahar@acme.com
+github_repo:   JawaharRamis/sales-products
+repo_pattern:  JawaharRamis/sales-*
+```
+
+Click **Run workflow**. The workflow targets the `main` branch.
+
+---
+
+## Step 3: Monitor the workflow
+
+The workflow runs four sequential jobs. Each job must pass before the next starts.
+
+### Job 1: `validate`
+
+Duration: ~10 seconds.
+
+Checks:
+- `domain_name` matches `^[a-z][a-z0-9_]*$`
+- `account_id` is exactly 12 digits
+- `owner_email` is a valid email
+- `github_repo` is in `org/repo` format
+- `repo_pattern` is a non-empty string
+
+If this job fails, fix the input values and re-run. No AWS or GitHub state has been touched.
+
+### Job 2: `provision-iam`
+
+Duration: 2–4 minutes.
+
+Watch for:
+- `Assuming MeshOnboardingRole` — OIDC credentials obtained for central account
+- `Assuming OrganizationAccountAccessRole` — chained into domain account
+- `Creating GitHub OIDC provider` — idempotent; safe if already exists
+- `Creating DomainGitHubActionsRole` — the role domain workflows use to deploy products
+- `Creating MeshEventRole` — allows EventBridge to forward events to central bus
+- `Committing domains/{domain_name}.yaml` — domain registry entry written to main
+
+If this job fails after the commit but before IAM is fully provisioned, the workflow automatically reverts the `domains/` commit. The domain registry is always consistent with what is actually provisioned.
+
+### Job 3: `provision-aws`
+
+Duration: 1–2 minutes.
+
+Steps marked **best-effort**: a failure here does not roll back IAM.
+
+Watch for:
+- `Registering Lake Formation S3 location` — registers the gold S3 prefix with LF
+- `Creating EventBridge cross-account rule` — allows domain account to forward `datameshy` events to central bus
+
+If either best-effort step fails, note the error but the domain is otherwise functional. You can re-trigger just this job by re-running failed jobs in the Actions UI, or by re-running the full workflow (it is idempotent).
+
+### Job 4: `bootstrap-repo`
+
+Duration: 1–2 minutes.
+
+Watch for:
+- `Creating repository from template` — `JawaharRamis/data-meshy-product-template` instantiated as `github_repo`
+- `Setting secret AWS_ROLE_ARN` — DomainGitHubActionsRole ARN
+- `Setting secret MESH_API_ENDPOINT` — governance API endpoint
+- `Setting secret MESH_DOMAIN_NAME` — domain name
+- `Opening quickstart issue` — checklist issue #1 in the new DP repo
+
+---
+
+## Step 4: Verify
+
+After all four jobs complete successfully, run through this checklist.
+
+**1. Domain registry committed to main**
+
+Check `domains/{domain_name}.yaml` exists in this repo on main. The file should look like:
+
+```yaml
+domain_name: sales
+account_id: "123456789012"
+aws_region: ap-southeast-2
+owner_email: jawahar@acme.com
+github_repo: JawaharRamis/sales-products
+repo_pattern: JawaharRamis/sales-*
+registered_at: "2026-05-15T..."
+status: ACTIVE
+```
+
+**2. New DP repo created**
+
+Navigate to `https://github.com/{github_repo}` (e.g., `https://github.com/JawaharRamis/sales-products`). The repo should exist with the template structure:
+
+```
+products/              (empty — domain team adds products here)
+.github/workflows/
+  on-push.yml
+  deprecate.yml
+  rollback.yml
+  upgrade-platform.yml
+glue_jobs/             (template stubs — domain team customizes)
+step_functions/        (template stubs)
+```
+
+**3. Quickstart issue opened**
+
+In the new DP repo, check **Issues** — issue #1 should be open with the title `[Quickstart] Set up your first data product` and a checklist for the domain team.
+
+**4. `DomainGitHubActionsRole` exists in domain account**
+
+In the domain's AWS account, navigate to **IAM → Roles** and search for `DomainGitHubActionsRole`. Verify:
+- Trust policy references the GitHub OIDC provider
+- Trust condition matches `repo:{repo_pattern}:ref:refs/heads/main`
+- Permissions include S3, Glue, StepFunctions
+- There is an explicit Deny on `lakeformation:GrantPermissions` and `lakeformation:RevokePermissions` — domain roles cannot manage LF grants directly
+
+**5. Catalog record (platform engineers only)**
+
+```
+python tools/catalog.py browse --domain sales
+```
+
+Expected output shows the domain with `status: ACTIVE` and 0 active products.
 
 ---
 
 ## Troubleshooting
 
-| Problem | Cause | Solution |
-|---|---|---|
-| `Domain name must be <= 32 characters` | Name too long | Shorten the domain name. Max 32 chars, alphanumeric + hyphens only. |
-| `terraform init` fails with S3 backend error | State bucket not provisioned | Use `terraform init -backend=false` for initial setup, then provision the backend bucket and re-run `terraform init`. |
-| `aws_org_id` validation error | Missing or invalid Organization ID | Run `aws organizations describe-organization` to get the correct ID. |
-| Event forwarding not working | Domain account ID not in `domain_account_ids` | Add the new domain's account ID to the `governance` module's `domain_account_ids` variable and re-apply the central account. |
-| KMS key policy access denied | Central account not in key policy | Verify `central_account_id` is correct in the domain's `terraform.tfvars`. |
-| `DomainOnboarded` event not received | Event bus ARN incorrect or bus resource policy blocks the domain | Verify `central_event_bus_arn` in the CLI command. Check the central bus resource policy includes the domain account ID. |
-| SSO permission set not available in new account | Permission sets not assigned | Work with the platform team to assign `DomainAdmin` and `DomainDataEngineer` permission sets to the appropriate SSO groups for this account. |
+### `validate` job fails with "domain_name pattern mismatch"
+
+The domain name contains uppercase letters, hyphens, or starts with a digit. Use only lowercase letters, digits, and underscores, starting with a letter.
+
+### `validate` job fails with "account_id must be 12 digits"
+
+Double-check the account ID. Log into the domain AWS account and run `aws sts get-caller-identity` to retrieve the exact account ID.
+
+### `provision-iam` fails at "Assuming OrganizationAccountAccessRole"
+
+The `MeshOnboardingRole` does not have permission to assume `OrganizationAccountAccessRole` in the domain account. This usually means the domain account was not enrolled into the Organization before onboarding, or the role name differs. Verify the account is in the org and that `OrganizationAccountAccessRole` exists in it (it is created automatically by AWS Organizations when accounts are created via the console or CLI).
+
+### `provision-iam` fails after partial IAM creation
+
+The rollback job will revert the `domains/` commit. Check the workflow logs for which IAM resource failed. Common causes:
+- IAM role limit reached in the domain account (default 1000) — request a limit increase
+- Permission boundary conflict — existing SCPs may block role creation; check org-level SCPs
+
+After the rollback completes, fix the root cause and re-run the full workflow. Re-running is safe because IAM resource creation is idempotent.
+
+### `provision-aws` fails at Lake Formation registration
+
+LF registration can fail if the S3 location is already registered by another role. This is best-effort and does not block the domain. Re-run just the `provision-aws` job after confirming the LF registration state:
+
+```
+python tools/catalog.py lf-status --domain sales
+```
+
+### `bootstrap-repo` fails at "Creating repository from template"
+
+The `ORG_PAT` secret may have expired or lost `repo` scope. Rotate the token: GitHub → Settings → Developer settings → Personal access tokens → regenerate with `repo`, `admin:org` scopes. Update the `ORG_PAT` secret in this repo's Actions secrets and re-run.
+
+### Re-running the full workflow is safe
+
+`onboard-domain.yml` is idempotent:
+- OIDC provider creation is idempotent (AWS returns success if already exists)
+- IAM role creation will update the role if it already exists
+- `domains/` commit will be skipped if the file already matches
+- Repo creation will fail gracefully if the repo already exists and continue to secret-setting
+
+---
+
+## What happens next
+
+Hand off to the domain team:
+1. Share the URL of the new DP repo: `https://github.com/{github_repo}`
+2. Direct them to issue #1 in that repo (quickstart checklist)
+3. Direct them to [Add a Product](ADD-PRODUCT.md) for their first data product
+
+The domain team will never interact with this repo or with Terraform directly. All their work happens through `product.yaml` + `infra.yaml` files in their DP repo.
 
 ---
 
 ## See Also
 
-- [Quick Start Guide](QUICK-START.md) -- end-to-end from scratch
-- [Add a Product Guide](ADD-PRODUCT.md) -- next step after domain onboarding
-- [Terraform Modules Reference](../reference/TERRAFORM-MODULES.md) -- module variables and outputs
-- [Resource Naming Reference](../reference/RESOURCE-NAMING.md) -- naming conventions for domain resources
-- [Architecture Document](../../plan/ARCHITECTURE.md) -- multi-account architecture and security model
+- [Add a Product Guide](ADD-PRODUCT.md) — next step for the domain team
+- [Subscription Flow](subscription-flow.md) — how consumers subscribe to data products
+- [Architecture Document](../../plan/ARCHITECTURE.md) — multi-account architecture and security model
+- [`domains/` directory](../../domains/) — all registered domain registry files

@@ -1,27 +1,27 @@
 # System Overview
 
-> **Phase coverage**: Phase 1 | **Last updated**: 2026-04-03 | **Stale check**: Phase 2
+> **Phase coverage**: Phase 5 | **Last updated**: 2026-05-15 | **Stale check**: Phase 6
 
 ## Navigation
-← [Parent](../README.md) | [Next →](MEDIATION-PIPELINE.md) | [↑ Docs home](../README.md)
+← [Docs home](../README.md) | [Next →](MEDIATION-PIPELINE.md) | [↑ Docs home](../README.md)
 
 ---
 
 ## What Is Data Meshy
 
-Data Meshy is an AWS template for running a data mesh. Domain teams get infrastructure to own, produce, share, and consume data products. A central governance account enforces policies, maintains the catalog, and routes events. Domain accounts run independent medallion pipelines that produce Iceberg tables as shareable products.
+Data Meshy is an AWS platform for running a data mesh. Domain teams get infrastructure to own, produce, share, and consume data products. A central governance account enforces policies, maintains the catalog, and routes events. Domain accounts run independent medallion pipelines that produce Iceberg tables as shareable products.
 
-The system is opinionated: Apache Iceberg for storage, Glue for ETL, Step Functions for orchestration, Lake Formation for cross-account sharing, EventBridge for mesh events. Domain teams follow the paved road (templates provided) but the publishing contract is the real boundary -- any mechanism that lands a compliant gold Iceberg table works.
+The system is opinionated: Apache Iceberg for storage, Glue for ETL, Step Functions for orchestration, Lake Formation for cross-account sharing, EventBridge for mesh events. Domain teams follow the paved road (YAML files + GitHub Actions) and the platform handles all infrastructure provisioning on their behalf. The publishing contract — a compliant gold Iceberg table described by a `product.yaml` — is the real boundary.
 
 ## Design Principles
 
 | Principle | How Data Meshy Enforces It |
 |---|---|
-| **Domain ownership** | One AWS account per domain. Domain teams own their S3 buckets, Glue catalog, pipelines, and IAM roles. No cross-domain access to raw/silver layers. |
+| **Domain ownership** | One AWS account per domain. Domain teams own their S3 buckets, Glue catalog, pipelines, and IAM roles. No cross-domain access to raw or silver layers. |
 | **Data-as-product** | Every data product has a `product.yaml` spec with schema, quality rules, SLA, and version. Only gold-layer tables are shared externally. |
-| **Self-serve** | Domain teams author `product.yaml` and `infra.yaml`; platform reusable GitHub Actions workflows handle provisioning. No pip install, no local Terraform. |
+| **Self-serve** | Domain teams author `product.yaml` (public contract) and `infra.yaml` (private infra config). Pushing to `main` in their DP repo is the entire interface. Platform reusable GitHub Actions workflows handle all Terraform provisioning. No pip install, no local Terraform for domain teams. |
 | **Federated governance** | Central account defines SCPs, LF-Tags, and catalog schema. Domain accounts have autonomy within those guardrails. No god-roles. |
-| **Event-driven** | All state changes emit events on EventBridge. Central catalog, audit log, and alerting are all subscribers -- never called directly by domains. |
+| **Event-driven** | All state changes emit events on EventBridge. Central catalog, audit log, and alerting are all subscribers — never called directly by domains. |
 
 ## System Diagram
 
@@ -85,33 +85,34 @@ The system is opinionated: Apache Iceberg for storage, Glue for ETL, Step Functi
 |---|---|---|---|
 | **Management** | AWS Organizations, SCPs, IAM Identity Center | Root | Org management, SCPs |
 | **Central Governance** | Catalog, events, governance, subscription workflows | Platform OU | DynamoDB (7 tables), EventBridge central bus, LF admin, KMS, Step Functions |
-| **Domain (e.g., Sales)** | Domain-owned data products | Domain OU | 3x S3 buckets, Glue Catalog DBs, Step Functions pipeline, domain EventBridge bus, 5x IAM roles |
+| **Domain (e.g., Sales)** | Domain-owned data products | Domain OU | 3x S3 buckets, Glue Catalog DBs, Step Functions pipeline, domain EventBridge bus, IAM roles |
 
-Each domain account is provisioned from the same Terraform module (`infra/modules/domain-account/`). Adding a new domain means instantiating that module with a different `domain` variable.
+Each domain account is provisioned by a platform engineer triggering `onboard-domain.yml` in the platform repo. The workflow writes a `domains/{domain}.yaml` registry entry, provisions `DomainGitHubActionsRole` and `MeshEventRole` via `MeshOnboardingRole` (OIDC), and instantiates the DP repo from `JawaharRamis/data-meshy-product-template`.
 
 ## Component Map
 
-| Component | Directory | Key Files | See Also |
+| Component | Location | Key Files | See Also |
 |---|---|---|---|
-| Central governance | `infra/modules/governance/` | `dynamodb.tf`, `iam.tf`, `eventbridge.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
-| Domain account | `infra/modules/domain-account/` | `s3.tf`, `iam.tf`, `lakeformation.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
-| Data product | `infra/modules/data-product/` | `outputs.tf`, main.tf | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
-| Medallion pipeline (ASL) | [template repo: step_functions/](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/) | `medallion_pipeline.asl.json` | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
-| Glue job templates | [template repo: glue_jobs/](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/) | `raw_ingestion.py`, `silver_transform.py`, `gold_aggregate.py` | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
-| Event schemas | `schemas/events/` | 10 JSON Schema files | [EVENT-MESH.md](EVENT-MESH.md) |
-| SCPs | `infra/environments/central/` | `scps.tf` | [SECURITY.md](SECURITY.md) |
-| OIDC federation | `infra/environments/central/` | `oidc.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
-| SSO / Identity Center | `infra/environments/central/` | `identity_center.tf` | [SECURITY.md](SECURITY.md) |
-| Platform catalog tool | `tools/catalog.py` | Standalone script — platform engineers only, no pip install | -- |
-| Environment configs | `infra/environments/` | `central/` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
-| Subscription module | `infra/modules/subscription/` | -- | [SECURITY.md](SECURITY.md) |
-| Monitoring | `infra/modules/monitoring/` | -- | -- |
+| Central governance | `infra/modules/governance/` (this repo) | `dynamodb.tf`, `iam.tf`, `eventbridge.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
+| Domain account module | [`data-meshy-product-template: modules/domain-account/`](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/modules/domain-account/) | `s3.tf`, `iam.tf`, `lakeformation.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
+| Data product module | [`data-meshy-product-template: modules/data-product/`](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/modules/data-product/) | `main.tf`, `outputs.tf` | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
+| Medallion pipeline (ASL) | [`data-meshy-product-template: step_functions/`](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/step_functions/) | `medallion_pipeline.asl.json` | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
+| Glue job templates | [`data-meshy-product-template: glue_jobs/`](https://github.com/JawaharRamis/data-meshy-product-template/tree/main/glue_jobs/) | `raw_ingestion.py`, `silver_transform.py`, `gold_aggregate.py` | [MEDIATION-PIPELINE.md](MEDIATION-PIPELINE.md) |
+| Subscription saga (ASL) | `templates/step_functions/` (this repo) | `subscription_saga.asl.json` | [SECURITY.md](SECURITY.md) |
+| Event schemas | `schemas/events/` (this repo) | 10 JSON Schema files | [EVENT-MESH.md](EVENT-MESH.md) |
+| Domain registry | `domains/` (this repo) | `{domain_name}.yaml` per domain | [ADD-DOMAIN.md](../guides/ADD-DOMAIN.md) |
+| SCPs | `infra/environments/central/` (this repo) | `scps.tf` | [SECURITY.md](SECURITY.md) |
+| OIDC federation | `infra/environments/central/` (this repo) | `oidc.tf` | [ACCOUNT-STRUCTURE.md](ACCOUNT-STRUCTURE.md) |
+| SSO / Identity Center | `infra/environments/central/` (this repo) | `identity_center.tf` | [SECURITY.md](SECURITY.md) |
+| Platform catalog tool | `tools/catalog.py` (this repo) | Standalone script (boto3 + argparse). Platform engineers only — no pip install. Subcommands: `search`, `browse`, `describe`. | -- |
+| Subscription module | `infra/modules/subscription/` (this repo) | `step_functions.tf` | [SECURITY.md](SECURITY.md) |
+| Monitoring | `infra/modules/monitoring/` (this repo) | -- | -- |
 
 ## Technology Stack
 
 | Capability | Technology | Rationale |
 |---|---|---|
-| **IaC** | Terraform (mono-repo) | First-class multi-account via provider aliases, explicit plan/apply, S3 backend per environment |
+| **IaC** | Terraform (platform-managed, state in central S3) | First-class multi-account via provider aliases, explicit plan/apply, S3 backend per environment. Domain teams never write or run Terraform. |
 | **Storage** | S3 (per medallion layer) | Scalable, Iceberg-compatible, lifecycle rules on raw |
 | **Table format** | Apache Iceberg on Glue Catalog | Schema evolution, time travel, partition evolution, native Glue/Athena support |
 | **Compute** | Glue ETL (PySpark, Flex mode) | Native Iceberg, serverless, cost-effective |
@@ -122,7 +123,7 @@ Each domain account is provisioned from the same Terraform module (`infra/module
 | **Events** | EventBridge + Schema Registry | Cross-account routing, schema enforcement, at-least-once delivery |
 | **Audit** | CloudTrail + DynamoDB (append-only) | API audit + structured mesh audit log |
 | **Alerts** | SNS | Quality alerts, pipeline failures, freshness violations, subscription requests |
-| **Domain interface** | GitHub Actions reusable workflows + YAML | Domain teams author `product.yaml`/`infra.yaml`, push to trigger platform workflows |
+| **Domain interface** | `product.yaml` + `infra.yaml` + GitHub Actions push | Domain teams author two YAML files per product and push to `main`. Platform reusable workflows (`provision-product.yml`) handle all provisioning. No CLI, no local Terraform. |
 | **Auth (human)** | IAM Identity Center (SSO) | Centralized, MFA enforcement, temporary credentials |
 | **Auth (CI/CD)** | GitHub Actions OIDC federation | No stored keys, branch-scoped roles |
 | **Encryption** | KMS (per-domain CMK) | Domain-level key isolation, S3 Bucket Keys to reduce API calls by 99% |
@@ -131,28 +132,29 @@ Each domain account is provisioned from the same Terraform module (`infra/module
 
 ## Data Flow Summary
 
-1. Domain engineer writes `product.yaml` and pushes to their domain repo; `provision-product.yml` reusable workflow triggers
-2. Workflow runs Terraform: provisions S3 paths, Iceberg table, Glue DQ ruleset, Step Functions pipeline
-3. On pipeline run, Step Functions runs the medallion pipeline: Raw -> Silver -> Gold -> Validate -> Quality -> Publish
-4. On publish, a `ProductRefreshed` event hits the domain EventBridge bus, which forwards to the central bus
-5. Central Lambda updates the DynamoDB catalog and audit log
-6. Consumer triggers `request-subscription.yml` workflow -> approval -> LF cross-account grant -> resource link in consumer account
-7. Consumer queries via Athena in their own account
+1. Domain engineer authors `product.yaml` (public contract) and `infra.yaml` (private infra config, includes `platform_version`) and pushes to `main` in their DP repo.
+2. The DP repo's `on-push.yml` stub calls `provision-product.yml` (reusable workflow in this repo) via `workflow_call`.
+3. `provision-product.yml` runs three steps in sequence:
+   - **Validate**: calls `reusable-product-validate.yml` to check `product.yaml` against `schemas/product_spec.json`.
+   - **Register**: POSTs `product.yaml` to the governance catalog API (SigV4-signed) to create or update the DynamoDB `mesh-products` entry.
+   - **Terraform apply**: resolves `modules/data-product` from `JawaharRamis/data-meshy-product-template` at the `platform_version` pinned in `infra.yaml`. State is stored in the central `mesh-tf-state` S3 bucket at key `{domain}/{product_name}/terraform.tfstate`. Provisions Iceberg table, Glue DQ ruleset, Step Functions pipeline, and Glue job scripts from the template repo's `glue_jobs/` directory.
+4. On pipeline run, Step Functions executes the medallion pipeline (ASL from `medallion_pipeline.asl.json` in the template repo): Raw → Silver → Gold → Validate → Quality → Publish.
+5. On publish, a `ProductRefreshed` event hits the domain EventBridge bus, which forwards via `MeshEventRole` to the central bus.
+6. Central Lambda updates the DynamoDB catalog and audit log.
+7. A consumer domain triggers `request-subscription.yml` `workflow_dispatch` in this repo. The workflow writes a PENDING record, opens an approval issue, and pauses at the `subscription-approval` environment gate. On platform team approval, it provisions an LF cross-account grant and resource link in the consumer account.
+8. Consumer queries via Athena in their own account.
 
 ## Key Architectural Decisions
 
 | Decision | Choice | Why | Trade-off |
 |---|---|---|---|
-| ADR-001 | Multi-account (1/domain + central) | Blast radius isolation, cost attribution, enterprise-realistic | More complex IaC |
-| ADR-002 | Terraform over CDK | Multi-account first-class, explicit plan/apply, industry standard | Less Pythonic |
-| ADR-003 | Step Functions over MWAA | $0 vs $350/mo minimum, visual debugging | Less industry-standard for data teams |
-| ADR-004 | Lake Formation over DataZone | Direct LF control, column-level security, DataZone as UI layer later | No web portal initially |
-| ADR-005 | Glue DQ over Great Expectations | Native integration, no extra infra | Less flexible DSL |
-| ADR-006 | DynamoDB over DataZone/OpenSearch | Serverless, free tier, GSI search | No full-text search |
-| ADR-007 | Iceberg on Glue Catalog | Schema evolution, time travel, partition evolution | Relatively new Glue support |
-| ADR-009 | Medallion as paved road, not mandate | Domain ownership principle, any gold Iceberg table works | Requires documenting publishing contract |
+| ADR-001 | Medallion model as paved road | Domain-owned layers (raw/silver/gold), predictable Iceberg output | Not mandated — any gold Iceberg table works |
+| ADR-002 | Decomposed IAM roles (not god-roles) | Least-privilege, explicit deny on LF permission management in domain roles | More roles to manage |
+| ADR-010 | Two-YAML interface (`product.yaml` + `infra.yaml`) | Clean separation of public contract from private infra tuning; schema validation gates before Terraform | Domain teams cannot express arbitrary infra |
+| ADR-011 | No HCL in DP repos — platform owns all Terraform | Prevents config drift, enables central version management, reduces domain team cognitive load | Platform team is the bottleneck for infra changes |
+| ADR-012 | Platform-managed onboarding via `workflow_dispatch` | Repeatable, audited, rollback-safe; removes manual AWS console steps | Requires platform engineer to initiate |
 
-Full ADR details: `plan/ARCHITECTURE.md` lines 196-260.
+Full ADR details: `docs/decisions/` and `plan/ARCHITECTURE.md`.
 
 ## Cost Profile (Portfolio Scale: 2 domains, ~10 GB)
 
