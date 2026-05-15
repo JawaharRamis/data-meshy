@@ -1,0 +1,333 @@
+name: Provision Data Product
+
+# Reusable workflow called by domain team repos on push to main.
+# Validates product.yaml, registers the product in the catalog, parses infra.yaml
+# into Terraform -var args, and applies the platform module.
+
+on:
+  workflow_call:
+    inputs:
+      product_dir:
+        description: "Directory containing product subdirectories (product.yaml + infra.yaml)."
+        type: string
+        default: "products/"
+      aws_region:
+        description: "AWS region for the domain account."
+        type: string
+        required: true
+    secrets:
+      AWS_ROLE_ARN:
+        description: "Full ARN of the DomainGitHubActionsRole to assume via OIDC."
+        required: true
+      MESH_API_ENDPOINT:
+        description: "Base URL of the catalog governance API (no trailing slash)."
+        required: true
+      MESH_DOMAIN_NAME:
+        description: "Domain name used as the S3 state key prefix and catalog namespace."
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Validate product.yaml against the platform schema (gate)
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate Product Spec (gate)
+    uses: ./.github/workflows/reusable-product-validate.yml
+    with:
+      products_dir: ${{ inputs.product_dir }}
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Register, deploy, and roll back on failure
+  # ---------------------------------------------------------------------------
+  provision:
+    name: Provision Data Product
+    runs-on: ubuntu-latest
+    needs: validate
+
+    outputs:
+      product_id: ${{ steps.register.outputs.product_id }}
+      product_name: ${{ steps.parse-infra.outputs.product_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Install Python dependencies
+        run: pip install pyyaml
+
+      # -----------------------------------------------------------------------
+      # Configure AWS credentials via OIDC (used by Step 2, Step 4, rollback)
+      # -----------------------------------------------------------------------
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502  # v4.0.2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+          role-session-name: ProvisionProduct-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # -----------------------------------------------------------------------
+      # Step 2: POST product.yaml to catalog API (SigV4-signed)
+      # -----------------------------------------------------------------------
+      - name: Register product in catalog
+        id: register
+        env:
+          MESH_API_ENDPOINT: ${{ secrets.MESH_API_ENDPOINT }}
+          MESH_DOMAIN_NAME: ${{ secrets.MESH_DOMAIN_NAME }}
+          PRODUCT_DIR: ${{ inputs.product_dir }}
+        run: |
+          python - <<'PYEOF'
+          import json
+          import os
+          import sys
+          import urllib.request
+          from pathlib import Path
+
+          import yaml
+          import botocore.session
+          from botocore.auth import SigV4Auth
+          from botocore.awsrequest import AWSRequest
+
+          endpoint = os.environ["MESH_API_ENDPOINT"]
+          domain_name = os.environ["MESH_DOMAIN_NAME"]
+          product_dir = os.environ["PRODUCT_DIR"]
+
+          # Find product.yaml
+          product_yaml_files = list(Path(product_dir).rglob("product.yaml"))
+          if not product_yaml_files:
+              print(f"ERROR: No product.yaml found in {product_dir}", file=sys.stderr)
+              sys.exit(1)
+          if len(product_yaml_files) > 1:
+              print(f"ERROR: Multiple product.yaml files found — expected exactly one", file=sys.stderr)
+              sys.exit(1)
+
+          product_yaml_path = product_yaml_files[0]
+          with open(product_yaml_path) as f:
+              product_data = yaml.safe_load(f)
+
+          # Add domain context
+          product_data["domain"] = domain_name
+          body = json.dumps(product_data).encode("utf-8")
+
+          # Sign with SigV4 using botocore (pre-installed on ubuntu-latest)
+          session = botocore.session.get_session()
+          credentials = session.get_credentials().get_frozen_credentials()
+          region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+
+          request = AWSRequest(
+              method="POST",
+              url=f"{endpoint}/products",
+              data=body,
+              headers={"Content-Type": "application/json"},
+          )
+          SigV4Auth(credentials, "execute-api", region).add_auth(request)
+
+          prepared = request.prepare()
+          req = urllib.request.Request(
+              prepared.url,
+              data=body,
+              headers=dict(prepared.headers),
+              method="POST",
+          )
+
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  response_body = json.loads(resp.read())
+                  product_id = response_body.get("product_id", "")
+                  print(f"Catalog registration successful. product_id={product_id}")
+          except urllib.error.HTTPError as e:
+              error_body = e.read().decode("utf-8", errors="replace")
+              print(f"ERROR: Catalog API returned {e.code}: {error_body}", file=sys.stderr)
+              sys.exit(1)
+
+          # Write step output
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"product_id={product_id}\n")
+          PYEOF
+
+      # -----------------------------------------------------------------------
+      # Step 3: Parse infra.yaml → Terraform -var args + extract product_name
+      # -----------------------------------------------------------------------
+      - name: Parse infra.yaml into Terraform vars
+        id: parse-infra
+        env:
+          PRODUCT_DIR: ${{ inputs.product_dir }}
+        run: |
+          python - <<'PYEOF'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          import yaml
+
+          product_dir = os.environ["PRODUCT_DIR"]
+
+          # Find infra.yaml
+          infra_yaml_files = list(Path(product_dir).rglob("infra.yaml"))
+          if not infra_yaml_files:
+              print(f"ERROR: No infra.yaml found in {product_dir}", file=sys.stderr)
+              sys.exit(1)
+          if len(infra_yaml_files) > 1:
+              print(f"ERROR: Multiple infra.yaml files found — expected exactly one", file=sys.stderr)
+              sys.exit(1)
+
+          with open(infra_yaml_files[0]) as f:
+              infra = yaml.safe_load(f)
+
+          # Extract platform_version
+          platform_version = infra.get("platform_version", "")
+          if not platform_version:
+              print("ERROR: platform_version is required in infra.yaml", file=sys.stderr)
+              sys.exit(1)
+
+          # Extract product name from the infra.yaml parent directory
+          product_name = infra_yaml_files[0].parent.name
+
+          # Build Terraform -var flags for the four sections
+          glue = infra.get("glue", {})
+          iceberg = infra.get("iceberg", {})
+          s3 = infra.get("s3", {})
+
+          tf_vars_parts = []
+
+          # glue.*
+          if "dpu" in glue:
+              tf_vars_parts.append(f'-var glue_dpu={glue["dpu"]}')
+          if "schedule" in glue:
+              schedule_escaped = glue["schedule"].replace('"', '\\"')
+              tf_vars_parts.append(f'-var glue_schedule="{schedule_escaped}"')
+          if "worker_type" in glue:
+              tf_vars_parts.append(f'-var glue_worker_type={glue["worker_type"]}')
+
+          # iceberg.*
+          if "partition_keys" in iceberg:
+              keys_json = json.dumps(iceberg["partition_keys"])
+              tf_vars_parts.append(f"-var iceberg_partition_keys='{keys_json}'")
+          if "compaction" in iceberg:
+              tf_vars_parts.append(f'-var iceberg_compaction={str(iceberg["compaction"]).lower()}')
+          if "retention_days" in iceberg:
+              tf_vars_parts.append(f'-var iceberg_retention_days={iceberg["retention_days"]}')
+
+          # s3.*
+          if "source_prefix" in s3:
+              tf_vars_parts.append(f'-var s3_source_prefix={s3["source_prefix"]}')
+
+          # platform_version
+          tf_vars_parts.append(f'-var platform_version={platform_version}')
+
+          tf_vars = " ".join(tf_vars_parts)
+
+          print(f"Product name:      {product_name}")
+          print(f"Platform version:  {platform_version}")
+          print(f"Terraform vars:    {tf_vars}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"tf_vars={tf_vars}\n")
+              out.write(f"product_name={product_name}\n")
+              out.write(f"platform_version={platform_version}\n")
+          PYEOF
+
+      # -----------------------------------------------------------------------
+      # Step 4: Terraform apply — STUB (if: false until #22 + #26 complete)
+      # NOTE: template repo (#22) pending human action — this step is a stub
+      #       until #22 + #26 complete. Module source below is the intended
+      #       final form; do not remove the if: false guards before #22 merges.
+      # -----------------------------------------------------------------------
+      - name: Setup Terraform
+        if: false  # Stub — remove guard after template repo #22 is created
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
+        with:
+          terraform_version: "1.7.5"
+          terraform_wrapper: true
+
+      - name: Terraform Apply
+        if: false  # Stub — remove guard after template repo #22 is created
+        id: tf-apply
+        env:
+          PLATFORM_VERSION: ${{ steps.parse-infra.outputs.platform_version }}
+          PRODUCT_NAME: ${{ steps.parse-infra.outputs.product_name }}
+          TF_VARS: ${{ steps.parse-infra.outputs.tf_vars }}
+          MESH_DOMAIN_NAME: ${{ secrets.MESH_DOMAIN_NAME }}
+          AWS_REGION: ${{ inputs.aws_region }}
+        run: |
+          set -euo pipefail
+
+          MODULE_SOURCE="git::https://github.com/JawaharRamis/data-meshy-product-template//modules/data-product?ref=${PLATFORM_VERSION}"
+
+          # Write ephemeral main.tf pointing at the versioned platform module
+          mkdir -p /tmp/product-tf
+          cat > /tmp/product-tf/main.tf <<HCL
+          module "data_product" {
+            source = "${MODULE_SOURCE}"
+          }
+          HCL
+
+          cd /tmp/product-tf
+
+          terraform init -input=false \
+            -backend-config="bucket=mesh-tf-state" \
+            -backend-config="key=${MESH_DOMAIN_NAME}/${PRODUCT_NAME}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}"
+
+          # shellcheck disable=SC2086  # intentional word-splitting for -var flags
+          terraform apply -auto-approve -input=false ${TF_VARS}
+
+      # -----------------------------------------------------------------------
+      # Rollback: DELETE catalog entry on Terraform failure (best-effort)
+      # -----------------------------------------------------------------------
+      - name: Rollback catalog registration on Terraform failure
+        if: failure() && steps.tf-apply.outcome == 'failure'
+        continue-on-error: true
+        env:
+          MESH_API_ENDPOINT: ${{ secrets.MESH_API_ENDPOINT }}
+          MESH_DOMAIN_NAME: ${{ secrets.MESH_DOMAIN_NAME }}
+          PRODUCT_NAME: ${{ steps.parse-infra.outputs.product_name }}
+        run: |
+          python - <<'PYEOF'
+          import os
+          import sys
+          import urllib.request
+
+          import botocore.session
+          from botocore.auth import SigV4Auth
+          from botocore.awsrequest import AWSRequest
+
+          endpoint = os.environ["MESH_API_ENDPOINT"]
+          domain_name = os.environ["MESH_DOMAIN_NAME"]
+          product_name = os.environ["PRODUCT_NAME"]
+
+          delete_url = f"{endpoint}/products/{domain_name}/{product_name}"
+
+          # Sign DELETE request with SigV4 using botocore (pre-installed on ubuntu-latest)
+          session = botocore.session.get_session()
+          credentials = session.get_credentials().get_frozen_credentials()
+          region = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+
+          request = AWSRequest(
+              method="DELETE",
+              url=delete_url,
+              headers={"Content-Type": "application/json"},
+          )
+          SigV4Auth(credentials, "execute-api", region).add_auth(request)
+
+          prepared = request.prepare()
+          req = urllib.request.Request(
+              prepared.url,
+              headers=dict(prepared.headers),
+              method="DELETE",
+          )
+
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  print(f"Rollback successful: DELETE {delete_url} returned {resp.status}")
+          except urllib.error.HTTPError as e:
+              # Best-effort: 404 means the entry didn't exist — that's fine
+              if e.code == 404:
+                  print(f"Rollback: product {product_name} not found in catalog (404) — nothing to delete")
+              else:
+                  print(f"Rollback WARNING: DELETE returned {e.code} — manual cleanup may be required", file=sys.stderr)
+          PYEOF
