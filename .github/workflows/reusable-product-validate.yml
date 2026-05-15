@@ -22,8 +22,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install datameshy CLI
-        run: pip install datameshy
+      - name: Install validation dependencies
+        run: pip install jsonschema pyyaml
 
       - name: Find and validate all product.yaml files
         run: |
@@ -35,12 +35,29 @@ jobs:
             exit 0
           fi
 
+          SCHEMA="schemas/product_spec.json"
+
           for spec in $SPECS; do
             echo "Validating: $spec"
-            if datameshy product validate --spec "$spec"; then
-              echo "  VALID: $spec"
-            else
-              echo "  INVALID: $spec"
+            python - "$spec" "$SCHEMA" <<'PYEOF'
+          import json, sys, yaml
+          from jsonschema import validate, ValidationError
+
+          spec_path, schema_path = sys.argv[1], sys.argv[2]
+
+          with open(schema_path) as f:
+              schema = json.load(f)
+          with open(spec_path) as f:
+              data = yaml.safe_load(f)
+
+          try:
+              validate(instance=data, schema=schema)
+              print(f"  VALID: {spec_path}")
+          except ValidationError as e:
+              print(f"  INVALID: {spec_path} — {e.message}")
+              sys.exit(1)
+          PYEOF
+            if [ $? -ne 0 ]; then
               FAIL=1
             fi
           done
