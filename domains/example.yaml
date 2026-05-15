@@ -1,0 +1,28 @@
+# domains/example.yaml
+# Reference file for the domain registry format.
+# Copy this file to domains/{your_domain_name}.yaml and fill in all fields.
+# All fields are required. See schemas/domain.json for validation rules.
+
+# Unique domain identifier: snake_case, matches the filename (without .yaml).
+# Pattern: ^[a-z][a-z0-9_]*$
+domain_name: example_domain
+
+# AWS account ID for this domain (12 digits, no hyphens).
+account_id: "123456789012"
+
+# AWS region where domain infrastructure is deployed.
+# Pattern: <area>-<direction>-<number> e.g. ap-southeast-2, us-east-1
+aws_region: ap-southeast-2
+
+# Email address of the domain owner or on-call group.
+owner_email: domain-owner@example.com
+
+# Full GitHub repository slug (org/repo) for this domain's data product repo.
+github_repo: your-org/example-domain-data
+
+# Glob pattern used by platform CI workflows to locate this domain's product repos.
+# Typical value is identical to github_repo for single-repo domains.
+repo_pattern: your-org/example-domain-*
+
+# ISO 8601 date when this domain was onboarded to the mesh (YYYY-MM-DD).
+onboarded_at: "2026-01-01"

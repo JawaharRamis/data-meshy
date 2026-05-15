@@ -1,16 +1,16 @@
-name: Reusable — Product Spec Validate
+name: Validate Domain Registry
 
 on:
-  workflow_call:
-    inputs:
-      products_dir:
-        description: "Directory containing product subdirectories with product.yaml files."
-        type: string
-        default: "products/"
+  push:
+    paths:
+      - "domains/**"
+  pull_request:
+    paths:
+      - "domains/**"
 
 jobs:
   validate:
-    name: Validate Product Specs (${{ inputs.products_dir }})
+    name: Validate domains/*.yaml against schema
     runs-on: ubuntu-latest
 
     steps:
@@ -25,36 +25,35 @@ jobs:
       - name: Install validation dependencies
         run: pip install jsonschema pyyaml
 
-      - name: Find and validate all product.yaml files
+      - name: Validate all domain registry files
         run: |
           FAIL=0
-          SPECS=$(find "${{ inputs.products_dir }}" -name "product.yaml" 2>/dev/null || true)
+          SCHEMA="schemas/domain.json"
+          DOMAINS=$(find domains/ -name "*.yaml" -not -name "example.yaml" 2>/dev/null || true)
 
-          if [ -z "$SPECS" ]; then
-            echo "No product.yaml files found in ${{ inputs.products_dir }} — nothing to validate."
+          if [ -z "$DOMAINS" ]; then
+            echo "No domain registry files found in domains/ — nothing to validate."
             exit 0
           fi
 
-          SCHEMA="schemas/product_spec.json"
-
-          for spec in $SPECS; do
-            echo "Validating: $spec"
-            python - "$spec" "$SCHEMA" <<'PYEOF'
+          for domain_file in $DOMAINS; do
+            echo "Validating: $domain_file"
+            python - "$domain_file" "$SCHEMA" <<'PYEOF'
           import json, sys, yaml
           from jsonschema import validate, ValidationError
 
-          spec_path, schema_path = sys.argv[1], sys.argv[2]
+          domain_path, schema_path = sys.argv[1], sys.argv[2]
 
           with open(schema_path) as f:
               schema = json.load(f)
-          with open(spec_path) as f:
+          with open(domain_path) as f:
               data = yaml.safe_load(f)
 
           try:
               validate(instance=data, schema=schema)
-              print(f"  VALID: {spec_path}")
+              print(f"  VALID: {domain_path}")
           except ValidationError as e:
-              print(f"  INVALID: {spec_path} — {e.message}")
+              print(f"  INVALID: {domain_path} — {e.message}")
               sys.exit(1)
           PYEOF
             if [ $? -ne 0 ]; then
