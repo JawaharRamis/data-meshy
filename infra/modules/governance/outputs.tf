@@ -224,3 +224,77 @@ output "api_execution_arn" {
   description = "Execution ARN of the mesh governance API (used for Lambda permission source_arn)."
   value       = aws_apigatewayv2_api.mesh_api.execution_arn
 }
+
+###############################################################################
+# Lambda ARNs (Phase 6 — shared contracts for environments/central/main.tf)
+###############################################################################
+
+# Catalog Lambdas
+output "catalog_writer_lambda_arn" {
+  description = "ARN of the catalog_writer Lambda (handles ProductCreated / ProductRefreshed events)."
+  value       = aws_lambda_function.catalog_writer.arn
+}
+
+output "catalog_search_lambda_arn" {
+  description = "ARN of the catalog_search Lambda (GET /catalog/search)."
+  value       = aws_lambda_function.catalog_search.arn
+}
+
+output "catalog_browse_lambda_arn" {
+  description = "ARN of the catalog_browse Lambda (GET /catalog/browse)."
+  value       = aws_lambda_function.catalog_browse.arn
+}
+
+output "catalog_describe_lambda_arn" {
+  description = "ARN of the catalog_describe Lambda (GET /catalog/{domain}/{product})."
+  value       = aws_lambda_function.catalog_describe.arn
+}
+
+# Subscription Lambdas
+output "subscription_request_lambda_arn" {
+  description = "ARN of the subscription_request Lambda (POST /subscriptions)."
+  value       = aws_lambda_function.subscription_request.arn
+}
+
+output "subscription_provisioner_lambda_arn" {
+  description = "ARN of the subscription_provisioner Lambda (saga steps A/B/C — referenced by Step Functions)."
+  value       = aws_lambda_function.subscription_provisioner.arn
+}
+
+output "subscription_compensator_lambda_arn" {
+  description = "ARN of the subscription_compensator Lambda (saga rollback — referenced by Step Functions)."
+  value       = aws_lambda_function.subscription_compensator.arn
+}
+
+# Event handler Lambdas
+output "audit_writer_lambda_arn" {
+  description = "ARN of the audit_writer Lambda (append-only audit log writer)."
+  value       = aws_lambda_function.audit_writer.arn
+}
+
+output "event_validator_lambda_arn" {
+  description = "ARN of the event_validator Lambda (source validation and deduplication)."
+  value       = aws_lambda_function.event_validator.arn
+}
+
+output "freshness_monitor_lambda_arn" {
+  description = "ARN of the freshness_monitor Lambda (daily SLA freshness cron)."
+  value       = aws_lambda_function.freshness_monitor.arn
+}
+
+# Lifecycle Lambdas
+output "product_deprecation_lambda_arn" {
+  description = "ARN of the product_deprecation Lambda."
+  value       = aws_lambda_function.product_deprecation.arn
+}
+
+output "retirement_lambda_arn" {
+  description = "ARN of the retirement Lambda."
+  value       = aws_lambda_function.retirement.arn
+}
+
+# Integration stub
+output "datazone_connector_lambda_arn" {
+  description = "ARN of the datazone_connector Lambda (DataZone catalog sync stub)."
+  value       = aws_lambda_function.datazone_connector.arn
+}

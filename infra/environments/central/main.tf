@@ -138,11 +138,9 @@ module "governance" {
   datazone_domain_name = var.datazone_domain_name
   datazone_sso_type    = var.datazone_sso_type
 
-  # Phase 2: Subscription API Lambda ARNs (placeholders until Stream 2 merges)
-  subscription_provisioner_lambda_arn = var.subscription_provisioner_lambda_arn
-  subscription_compensator_lambda_arn = var.subscription_compensator_lambda_arn
-  subscription_approver_lambda_arn    = var.subscription_approver_lambda_arn
-  subscription_lister_lambda_arn      = var.subscription_lister_lambda_arn
+  # Phase 6: Lambda ARN variable passthrough removed — lambdas.tf in the
+  # governance module now creates all Lambdas directly. The variable declarations
+  # above are retained for backward compatibility with existing tfvars files.
 }
 
 ###############################################################################
@@ -313,10 +311,11 @@ output "datazone_portal_url" {
 }
 
 ###############################################################################
-# Phase 2: Subscription module instantiation
-# Lambda ARN variables default to "" until Stream 2 merges.
-# The SFN is created with placeholder Lambda ARNs — it will work structurally
-# but execution requires real Lambdas from Stream 2.
+# Phase 6: Subscription module instantiation
+# Lambda ARNs now come from module.governance outputs (Phase 6 Stream 1).
+# The "" placeholder variables for provisioner/compensator are no longer used
+# for the subscription module — they are kept in variable declarations above
+# for backward compatibility but are not passed through.
 ###############################################################################
 
 module "subscription" {
@@ -328,9 +327,9 @@ module "subscription" {
 
   central_event_bus_arn = module.governance.central_event_bus_arn
 
-  # Lambda ARNs — populated after Stream 2 merges
-  provisioner_lambda_arn = var.subscription_provisioner_lambda_arn
-  compensator_lambda_arn = var.subscription_compensator_lambda_arn
+  # Lambda ARNs — wired from governance module outputs (Phase 6 Stream 1)
+  provisioner_lambda_arn = module.governance.subscription_provisioner_lambda_arn
+  compensator_lambda_arn = module.governance.subscription_compensator_lambda_arn
 
   # IAM roles from governance module (shared contract)
   lf_grantor_role_arn  = module.governance.mesh_lf_grantor_role_arn
