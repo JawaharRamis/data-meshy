@@ -40,9 +40,21 @@ variable "environment" {
   default     = "portfolio"
 }
 
+variable "organizations_enabled" {
+  description = "Set to true once AWS Organizations and IAM Identity Center are enabled. Gates all Organizations-dependent resources (SCPs, Identity Center) so the central stack can be applied before the org is set up."
+  type        = bool
+  default     = false
+}
+
 variable "org_id" {
-  description = "AWS Organization ID."
+  description = "AWS Organization ID (o-xxxxxxxxxx). Required when organizations_enabled = true."
   type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.organizations_enabled || length(var.org_id) > 0
+    error_message = "org_id must be set when organizations_enabled = true."
+  }
 }
 
 variable "domain_account_ids" {

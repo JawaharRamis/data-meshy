@@ -11,6 +11,7 @@
 # Domain OU SCP
 ###############################################################################
 resource "aws_organizations_policy" "domain_ou_guardrails" {
+  count       = var.organizations_enabled ? 1 : 0
   name        = "DataMeshyDomainGuardrails"
   description = "Data Meshy Domain OU guardrails: enforce security controls, cost guardrails, and governance compliance."
   type        = "SERVICE_CONTROL_POLICY"
@@ -174,6 +175,7 @@ resource "aws_organizations_policy" "domain_ou_guardrails" {
 # Platform OU SCP — require MFA for MeshAdminRole
 ###############################################################################
 resource "aws_organizations_policy" "platform_ou_guardrails" {
+  count       = var.organizations_enabled ? 1 : 0
   name        = "DataMeshyPlatformGuardrails"
   description = "Data Meshy Platform OU guardrails: MFA required for MeshAdminRole assumption."
   type        = "SERVICE_CONTROL_POLICY"

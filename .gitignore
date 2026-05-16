@@ -15,3 +15,9 @@ htmlcov/
 
 # Terraform Lambda build artifacts
 infra/modules/governance/.build/
+
+# Terraform local state files — never commit real account IDs or secrets
+infra/environments/central/terraform.tfvars
+infra/environments/**/.terraform/
+infra/environments/**/*.tfstate
+infra/environments/**/*.tfstate.backup
