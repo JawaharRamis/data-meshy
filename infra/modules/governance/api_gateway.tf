@@ -87,122 +87,105 @@ resource "aws_cloudwatch_log_group" "mesh_api_access_logs" {
 ###############################################################################
 
 ###############################################################################
-# Lambda integrations
-# When Stream 2 merges, the *_lambda_arn variables are populated.
-# Until then, routes exist but integrations point to empty ARNs which APIGW
-# will reject at invocation time (not at plan/apply time).
-# Use count/for_each guard so integration resources are skipped when ARN is "".
+# Lambda integrations — Phase 6: all Lambdas now exist in lambdas.tf.
+# Integration URIs reference aws_lambda_function resources directly.
+# Variable-based count guards removed; resources are unconditional.
 ###############################################################################
 
 resource "aws_apigatewayv2_integration" "subscription_create" {
-  count = var.subscription_provisioner_lambda_arn != "" ? 1 : 0
-
   api_id                 = aws_apigatewayv2_api.mesh_api.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = var.subscription_provisioner_lambda_arn
+  integration_uri        = aws_lambda_function.subscription_request.arn
   integration_method     = "POST"
   payload_format_version = "2.0"
   timeout_milliseconds   = 29000
-  description            = "Subscription create handler (Stream 2: subscription_create Lambda)"
+  description            = "Subscription create handler (subscription_request Lambda)"
 }
 
 resource "aws_apigatewayv2_integration" "subscription_list" {
-  count = var.subscription_lister_lambda_arn != "" ? 1 : 0
-
   api_id                 = aws_apigatewayv2_api.mesh_api.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = var.subscription_lister_lambda_arn
+  integration_uri        = aws_lambda_function.subscription_request.arn
   integration_method     = "POST"
   payload_format_version = "2.0"
   timeout_milliseconds   = 29000
-  description            = "Subscription list handler (Stream 2: subscription_list Lambda)"
+  description            = "Subscription list handler (subscription_request Lambda — list path)"
 }
 
 resource "aws_apigatewayv2_integration" "subscription_approve" {
-  count = var.subscription_approver_lambda_arn != "" ? 1 : 0
-
   api_id                 = aws_apigatewayv2_api.mesh_api.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = var.subscription_approver_lambda_arn
+  integration_uri        = aws_lambda_function.subscription_request.arn
   integration_method     = "POST"
   payload_format_version = "2.0"
   timeout_milliseconds   = 29000
-  description            = "Subscription approve/revoke handler (Stream 2: subscription_approver Lambda)"
+  description            = "Subscription approve/revoke handler (subscription_request Lambda — approve/revoke path)"
 }
 
 ###############################################################################
 # Routes — AWS_IAM auth on all routes
-# Routes are created unconditionally so the API structure exists from day 1.
-# Integrations are conditional (above); routes without integrations return 404.
 ###############################################################################
 
 resource "aws_apigatewayv2_route" "post_subscriptions" {
   api_id             = aws_apigatewayv2_api.mesh_api.id
   route_key          = "POST /subscriptions"
   authorization_type = "AWS_IAM"
-  target             = length(aws_apigatewayv2_integration.subscription_create) > 0 ? "integrations/${aws_apigatewayv2_integration.subscription_create[0].id}" : null
+  target             = "integrations/${aws_apigatewayv2_integration.subscription_create.id}"
 }
 
 resource "aws_apigatewayv2_route" "get_subscriptions" {
   api_id             = aws_apigatewayv2_api.mesh_api.id
   route_key          = "GET /subscriptions"
   authorization_type = "AWS_IAM"
-  target             = length(aws_apigatewayv2_integration.subscription_list) > 0 ? "integrations/${aws_apigatewayv2_integration.subscription_list[0].id}" : null
+  target             = "integrations/${aws_apigatewayv2_integration.subscription_list.id}"
 }
 
 resource "aws_apigatewayv2_route" "post_subscription_approve" {
   api_id             = aws_apigatewayv2_api.mesh_api.id
   route_key          = "POST /subscriptions/{id}/approve"
   authorization_type = "AWS_IAM"
-  target             = length(aws_apigatewayv2_integration.subscription_approve) > 0 ? "integrations/${aws_apigatewayv2_integration.subscription_approve[0].id}" : null
+  target             = "integrations/${aws_apigatewayv2_integration.subscription_approve.id}"
 }
 
 resource "aws_apigatewayv2_route" "post_subscription_revoke" {
   api_id             = aws_apigatewayv2_api.mesh_api.id
   route_key          = "POST /subscriptions/{id}/revoke"
   authorization_type = "AWS_IAM"
-  target             = length(aws_apigatewayv2_integration.subscription_approve) > 0 ? "integrations/${aws_apigatewayv2_integration.subscription_approve[0].id}" : null
+  target             = "integrations/${aws_apigatewayv2_integration.subscription_approve.id}"
 }
 
 ###############################################################################
-# Catalog Lambda integrations (Phase 3 Stream 1)
-# catalog_search_lambda_arn and catalog_browse_lambda_arn added in variables.tf
+# Catalog Lambda integrations — direct ARN references (Phase 6)
 ###############################################################################
 
 resource "aws_apigatewayv2_integration" "catalog_search" {
-  count = var.catalog_search_lambda_arn != "" ? 1 : 0
-
   api_id                 = aws_apigatewayv2_api.mesh_api.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = var.catalog_search_lambda_arn
+  integration_uri        = aws_lambda_function.catalog_search.arn
   integration_method     = "POST"
   payload_format_version = "2.0"
   timeout_milliseconds   = 29000
-  description            = "Catalog search handler (Phase 3 Stream 1: catalog_search Lambda)"
+  description            = "Catalog search handler (catalog_search Lambda)"
 }
 
 resource "aws_apigatewayv2_integration" "catalog_browse" {
-  count = var.catalog_browse_lambda_arn != "" ? 1 : 0
-
   api_id                 = aws_apigatewayv2_api.mesh_api.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = var.catalog_browse_lambda_arn
+  integration_uri        = aws_lambda_function.catalog_browse.arn
   integration_method     = "POST"
   payload_format_version = "2.0"
   timeout_milliseconds   = 29000
-  description            = "Catalog browse handler (Phase 3 Stream 1: catalog_browse Lambda)"
+  description            = "Catalog browse handler (catalog_browse Lambda)"
 }
 
 resource "aws_apigatewayv2_integration" "catalog_describe" {
-  count = var.catalog_describe_lambda_arn != "" ? 1 : 0
-
   api_id                 = aws_apigatewayv2_api.mesh_api.id
   integration_type       = "AWS_PROXY"
-  integration_uri        = var.catalog_describe_lambda_arn
+  integration_uri        = aws_lambda_function.catalog_describe.arn
   integration_method     = "POST"
   payload_format_version = "2.0"
   timeout_milliseconds   = 29000
-  description            = "Catalog describe handler (Phase 3 Stream 1: catalog_describe Lambda)"
+  description            = "Catalog describe handler (catalog_describe Lambda)"
 }
 
 ###############################################################################
@@ -213,83 +196,33 @@ resource "aws_apigatewayv2_route" "get_catalog_search" {
   api_id             = aws_apigatewayv2_api.mesh_api.id
   route_key          = "GET /catalog/search"
   authorization_type = "AWS_IAM"
-  target             = length(aws_apigatewayv2_integration.catalog_search) > 0 ? "integrations/${aws_apigatewayv2_integration.catalog_search[0].id}" : null
+  target             = "integrations/${aws_apigatewayv2_integration.catalog_search.id}"
 }
 
 resource "aws_apigatewayv2_route" "get_catalog_browse" {
   api_id             = aws_apigatewayv2_api.mesh_api.id
   route_key          = "GET /catalog/browse"
   authorization_type = "AWS_IAM"
-  target             = length(aws_apigatewayv2_integration.catalog_browse) > 0 ? "integrations/${aws_apigatewayv2_integration.catalog_browse[0].id}" : null
+  target             = "integrations/${aws_apigatewayv2_integration.catalog_browse.id}"
 }
 
 resource "aws_apigatewayv2_route" "get_catalog_describe" {
   api_id             = aws_apigatewayv2_api.mesh_api.id
   route_key          = "GET /catalog/{domain}/{product}"
   authorization_type = "AWS_IAM"
-  target             = length(aws_apigatewayv2_integration.catalog_describe) > 0 ? "integrations/${aws_apigatewayv2_integration.catalog_describe[0].id}" : null
+  target             = "integrations/${aws_apigatewayv2_integration.catalog_describe.id}"
 }
 
 ###############################################################################
 # Lambda permissions — allow APIGW to invoke each Lambda
+# Catalog Lambda permissions are defined in lambdas.tf (apigw_*_direct resources).
+# Subscription Lambda permissions use a wildcard source_arn to cover all routes.
 ###############################################################################
 
-resource "aws_lambda_permission" "apigw_catalog_search" {
-  count = var.catalog_search_lambda_arn != "" ? 1 : 0
-
-  statement_id  = "AllowAPIGWInvokeCatalogSearch"
+resource "aws_lambda_permission" "apigw_subscription_all_routes" {
+  statement_id  = "AllowAPIGWInvokeSubscriptionAllRoutes"
   action        = "lambda:InvokeFunction"
-  function_name = var.catalog_search_lambda_arn
+  function_name = aws_lambda_function.subscription_request.function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/catalog/search"
-}
-
-resource "aws_lambda_permission" "apigw_catalog_browse" {
-  count = var.catalog_browse_lambda_arn != "" ? 1 : 0
-
-  statement_id  = "AllowAPIGWInvokeCatalogBrowse"
-  action        = "lambda:InvokeFunction"
-  function_name = var.catalog_browse_lambda_arn
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/catalog/browse"
-}
-
-resource "aws_lambda_permission" "apigw_catalog_describe" {
-  count = var.catalog_describe_lambda_arn != "" ? 1 : 0
-
-  statement_id  = "AllowAPIGWInvokeCatalogDescribe"
-  action        = "lambda:InvokeFunction"
-  function_name = var.catalog_describe_lambda_arn
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/catalog/*/*"
-}
-
-resource "aws_lambda_permission" "apigw_subscription_create" {
-  count = var.subscription_provisioner_lambda_arn != "" ? 1 : 0
-
-  statement_id  = "AllowAPIGWInvokeSubscriptionCreate"
-  action        = "lambda:InvokeFunction"
-  function_name = var.subscription_provisioner_lambda_arn
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/subscriptions"
-}
-
-resource "aws_lambda_permission" "apigw_subscription_list" {
-  count = var.subscription_lister_lambda_arn != "" ? 1 : 0
-
-  statement_id  = "AllowAPIGWInvokeSubscriptionList"
-  action        = "lambda:InvokeFunction"
-  function_name = var.subscription_lister_lambda_arn
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/subscriptions"
-}
-
-resource "aws_lambda_permission" "apigw_subscription_approve" {
-  count = var.subscription_approver_lambda_arn != "" ? 1 : 0
-
-  statement_id  = "AllowAPIGWInvokeSubscriptionApprove"
-  action        = "lambda:InvokeFunction"
-  function_name = var.subscription_approver_lambda_arn
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*/subscriptions/*"
+  source_arn    = "${aws_apigatewayv2_api.mesh_api.execution_arn}/*/*"
 }

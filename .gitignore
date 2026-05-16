@@ -12,3 +12,6 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Terraform Lambda build artifacts
+infra/modules/governance/.build/
