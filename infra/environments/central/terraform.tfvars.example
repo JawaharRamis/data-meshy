@@ -1,0 +1,82 @@
+# terraform.tfvars.example
+#
+# Copy this file to terraform.tfvars and fill in real values before running
+# terraform init. See BOOTSTRAP.md for the full bootstrap sequence.
+#
+# terraform.tfvars is listed in .gitignore — do NOT commit it.
+
+###############################################################################
+# Core
+###############################################################################
+
+aws_region  = "us-east-1"
+environment = "portfolio"
+
+###############################################################################
+# Organizations — gate all SCPs and Identity Center resources
+###############################################################################
+
+# Set to false (default) until AWS Organizations + IAM Identity Center are
+# enabled in the central account. Flip to true and set org_id after setup.
+organizations_enabled = false
+
+# Required when organizations_enabled = true. Leave as "" otherwise.
+# Format: o-xxxxxxxxxx (10 alphanumeric characters after the "o-").
+org_id = ""
+
+###############################################################################
+# Domain accounts
+###############################################################################
+
+# List of 12-digit AWS account IDs for domain accounts that are allowed to
+# publish events to the central EventBridge bus.
+# Append-only — adding a domain never removes access for existing domains.
+# Example: domain_account_ids = ["123456789012", "210987654321"]
+domain_account_ids = []
+
+###############################################################################
+# GitHub OIDC
+###############################################################################
+
+# GitHub organisation or username that hosts the platform repo.
+github_org = "REPLACE_WITH_GITHUB_ORG"
+
+# GitHub repository name (default matches this repo).
+github_repo = "data-meshy"
+
+# OIDC subject conditions for domain GitHub repos.
+# Add one entry per domain repo as it is onboarded.
+# Example: domain_repo_paths = ["repo:my-org/data-meshy-sales:*"]
+domain_repo_paths = []
+
+###############################################################################
+# Alerting
+###############################################################################
+
+# Optional: email address to subscribe to SNS alert topics.
+# Leave as "" to skip email subscription.
+alert_email = ""
+
+###############################################################################
+# DataZone
+###############################################################################
+
+# Name of the AWS DataZone domain.
+datazone_domain_name = "data-meshy"
+
+# SSO type for DataZone. Use "DISABLED" for portfolio/dev deployments.
+# Set to "IAM_IDC" to enable IAM Identity Center integration for
+# non-technical product owner approval via the DataZone web UI.
+datazone_sso_type = "DISABLED"
+
+###############################################################################
+# Lambda ARN passthrough (backward compatibility — not passed to modules)
+###############################################################################
+# These variables are kept for compatibility with older tfvars files.
+# Lambdas are now created directly inside the governance module (Phase 6).
+# Leave as "" — values here have no effect.
+
+subscription_provisioner_lambda_arn = ""
+subscription_compensator_lambda_arn = ""
+subscription_approver_lambda_arn    = ""
+subscription_lister_lambda_arn      = ""

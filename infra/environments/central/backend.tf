@@ -1,8 +1,10 @@
 terraform {
   backend "s3" {
     # Bucket name includes account_id to ensure global uniqueness.
-    # Replace <account_id> with your central governance AWS account ID.
-    bucket = "data-meshy-tfstate-central-<account_id>"
+    # Replace CENTRAL_ACCOUNT_ID below with your 12-digit AWS account ID.
+    # See BOOTSTRAP.md for step-by-step instructions to create this bucket
+    # and all other backend prerequisites before running terraform init.
+    bucket = "data-meshy-tfstate-central-CENTRAL_ACCOUNT_ID"
 
     key    = "central/terraform.tfstate"
     region = "us-east-1"
