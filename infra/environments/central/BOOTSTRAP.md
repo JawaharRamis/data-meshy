@@ -133,6 +133,35 @@ terraform init -backend-config=backend.tfbackend
 
 ---
 
+## 9. Run terraform apply (first-time bootstrap only)
+
+> **Why can't this be done via GitHub Actions?**
+> The GitHub Actions OIDC provider and `TerraformApplyRole` are created *by* this
+> first apply — they don't exist yet. It's a bootstrap chicken-and-egg. After this
+> one-time apply, all subsequent applies can run via the `terraform-apply` GitHub
+> Actions workflow.
+
+```bash
+cd infra/environments/central
+terraform plan   # review what will be created
+terraform apply  # ~5 minutes; creates ~150 AWS resources
+```
+
+When the apply completes, capture the outputs for use as GitHub secrets:
+
+```bash
+terraform output api_endpoint_url
+terraform output terraform_apply_role_arn
+terraform output terraform_plan_role_arn
+```
+
+Add these to your GitHub repository secrets:
+- `API_ENDPOINT_URL` ← value of `api_endpoint_url`
+- `CENTRAL_TERRAFORM_APPLY_ROLE_ARN` ← value of `terraform_apply_role_arn`
+- `CENTRAL_TERRAFORM_PLAN_ROLE_ARN` ← value of `terraform_plan_role_arn`
+
+---
+
 ## After Organizations is set up
 
 Once AWS Organizations and IAM Identity Center are enabled:

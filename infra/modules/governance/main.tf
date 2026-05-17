@@ -120,6 +120,46 @@ resource "aws_kms_key" "mesh_central" {
             "kms:CallerAccount" = data.aws_caller_identity.current.account_id
           }
         }
+      },
+      # CloudWatch Logs service principal — required to encrypt log groups with this CMK
+      {
+        Sid    = "CloudWatchLogsEncrypt"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.us-east-1.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:us-east-1:${data.aws_caller_identity.current.account_id}:*"
+          }
+        }
+      },
+      # SNS service principal — required for KMS-encrypted SNS topics
+      {
+        Sid    = "SNSServicePrincipal"
+        Effect = "Allow"
+        Principal = {
+          Service = "sns.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
       }
     ]
   })
@@ -143,7 +183,7 @@ resource "aws_sns_topic" "mesh_quality_alerts" {
 
   tags = merge(local.mandatory_tags, {
     Name    = "mesh-quality-alerts"
-    Purpose = "Alerts when a data product's quality score drops below threshold"
+    Purpose = "Alerts when a data product quality score drops below threshold"
   })
 }
 
