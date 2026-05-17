@@ -18,6 +18,7 @@ infra/modules/governance/.build/
 
 # Terraform local state files — never commit real account IDs or secrets
 infra/environments/central/terraform.tfvars
+infra/environments/central/backend.tfbackend
 infra/environments/**/.terraform/
 infra/environments/**/*.tfstate
 infra/environments/**/*.tfstate.backup

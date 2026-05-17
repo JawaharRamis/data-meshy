@@ -1,0 +1,15 @@
+# backend.tfbackend.example
+#
+# Copy to backend.tfbackend and fill in your central account ID:
+#
+#   cp backend.tfbackend.example backend.tfbackend
+#
+# Then init with:
+#
+#   terraform init -backend-config=backend.tfbackend
+#
+# backend.tfbackend is gitignored — do NOT commit it.
+# In GitHub Actions, this file is generated from secrets.AWS_ACCOUNT_ID
+# by the CI step before terraform init runs.
+
+bucket = "data-meshy-tfstate-central-<your-12-digit-account-id>"

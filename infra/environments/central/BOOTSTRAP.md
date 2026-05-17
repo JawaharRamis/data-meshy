@@ -88,17 +88,19 @@ aws dynamodb create-table \
 
 ---
 
-## 6. Update backend.tf with your account ID
+## 6. Create backend.tfbackend (partial backend config)
 
-Edit `infra/environments/central/backend.tf` and replace `CENTRAL_ACCOUNT_ID`
-with your real 12-digit account ID (the value of `$CENTRAL_ACCOUNT_ID`):
+`backend.tf` omits the bucket name to avoid committing an account ID to a public
+repo. Create a gitignored file with just the bucket name:
 
+```bash
+cat > infra/environments/central/backend.tfbackend <<EOF
+bucket = "data-meshy-tfstate-central-${CENTRAL_ACCOUNT_ID}"
+EOF
 ```
-bucket = "data-meshy-tfstate-central-123456789012"
-```
 
-> Do NOT commit a real account ID in this file if the repo is public. The
-> placeholder `CENTRAL_ACCOUNT_ID` is intentional — replace it locally only.
+Pass this file to `terraform init` via `-backend-config` (see step 8).
+`backend.tfbackend` is listed in `.gitignore` — it will not be committed.
 
 ---
 
@@ -122,9 +124,11 @@ Then edit `terraform.tfvars` and fill in:
 
 ## 8. Run terraform init
 
+Pass the partial backend config file so Terraform knows which bucket to use:
+
 ```bash
 cd infra/environments/central
-terraform init
+terraform init -backend-config=backend.tfbackend
 ```
 
 ---
