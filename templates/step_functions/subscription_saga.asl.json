@@ -1,5 +1,5 @@
 {
-  "Comment": "Data Meshy — Subscription Provisioning Saga. Orchestrates LF grant → KMS grant → Resource link with compensation on failure.",
+  "Comment": "Data Meshy - Subscription Provisioning Saga. Orchestrates LF grant -> KMS grant -> Resource link with compensation on failure.",
   "TimeoutSeconds": 900,
   "StartAt": "GrantLFPermissions",
   "States": {
