@@ -160,6 +160,17 @@ Add these to your GitHub repository secrets:
 - `CENTRAL_TERRAFORM_APPLY_ROLE_ARN` ← value of `terraform_apply_role_arn`
 - `CENTRAL_TERRAFORM_PLAN_ROLE_ARN` ← value of `terraform_plan_role_arn`
 
+### Reference: deployed values (2026-05-17)
+
+| Output | Value |
+|--------|-------|
+| `api_endpoint_url` | `https://1iacn0ajp5.execute-api.us-east-1.amazonaws.com` |
+| `terraform_apply_role_arn` | `arn:aws:iam::521965996346:role/TerraformApplyRole` |
+| `terraform_plan_role_arn` | `arn:aws:iam::521965996346:role/TerraformPlanRole` |
+| `central_event_bus_arn` | `arn:aws:events:us-east-1:521965996346:event-bus/mesh-central-bus` |
+| `subscription_sfn_arn` | `arn:aws:states:us-east-1:521965996346:stateMachine:subscription-provisioner` |
+| `datazone_portal_url` | `https://dzd-4uxi3r22b3t413.datazone.us-east-1.on.aws/` |
+
 ---
 
 ## After Organizations is set up
