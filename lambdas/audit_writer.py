@@ -41,7 +41,7 @@ def handler(event, context):
     Returns:
         dict with status
     """
-    audit_table = _get_table("MESH_AUDIT_TABLE", DEFAULT_AUDIT_TABLE)
+    audit_table = _get_table("MESH_AUDIT_LOG_TABLE", DEFAULT_AUDIT_TABLE)
     dynamodb = boto3.resource("dynamodb")
     table = dynamodb.Table(audit_table)
 

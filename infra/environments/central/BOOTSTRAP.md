@@ -173,6 +173,42 @@ Add these to your GitHub repository secrets:
 
 ---
 
+## Phase 6 Smoke Test Results (2026-05-25)
+
+### Resource Verification
+
+| Resource Group | Count | Status |
+|---|---|---|
+| Lambda functions (`mesh-*`) | 13 | All `State: Active` |
+| DynamoDB tables | 7 | All exist, PITR enabled |
+| API Gateway routes (`mesh-governance-api`) | 7 | All wired to Lambda integrations |
+| EventBridge bus | 1 (`mesh-central-bus`) | Exists |
+| Step Functions state machine | 1 (`subscription-provisioner`) | `ACTIVE` |
+| IAM roles | 6 | All exist |
+
+### Lambda Smoke Test Results
+
+| Lambda | Payload | Result | Notes |
+|---|---|---|---|
+| `mesh-catalog-search` | `{"queryStringParameters": {"keyword": "test"}}` | 200 `{"items": [], "count": 0}` | Pass |
+| `mesh-catalog-writer` | ProductCreated EventBridge event | 200 `{"status": "success", "action": "ProductCreated"}` | Fixed — see below |
+| `mesh-audit-writer` | EventBridge event | 200 `{"status": "success"}` | Fixed — see below |
+
+### Fixes Applied
+
+**`mesh-catalog-writer` — `Runtime.ImportModuleError: No module named 'event_validator'`**
+
+The Terraform `archive_file` data source used `source_file` (single file) but `catalog_writer.py` imports `event_validator.py`. Fixed by:
+1. Updated `lambdas/catalog_writer.py` — no code change needed (import was correct)
+2. Updated `infra/modules/governance/lambdas.tf` to bundle `event_validator.py` into the `catalog_writer` archive using dynamic `source` blocks
+3. Hot-patched deployed Lambda with correct zip containing both files
+
+**`mesh-audit-writer` — env var name mismatch**
+
+Lambda config exports `MESH_AUDIT_LOG_TABLE` but `audit_writer.py` read `MESH_AUDIT_TABLE`. Fixed by updating `audit_writer.py` to use the correct env var key `MESH_AUDIT_LOG_TABLE`. Function still worked via the fallback default value, but is now correctly wired.
+
+---
+
 ## After Organizations is set up
 
 Once AWS Organizations and IAM Identity Center are enabled:
