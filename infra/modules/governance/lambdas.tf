@@ -34,10 +34,27 @@ data "aws_iam_policy_document" "lambda_assume" {
 
 # ── catalog_writer ────────────────────────────────────────────────────────────
 
+locals {
+  # catalog_writer depends on event_validator — bundle both into one zip.
+  # The build script copies both source files into a staging directory so that
+  # archive_file.source_dir captures them together.
+  catalog_writer_sources = {
+    "catalog_writer.py"  = "${path.root}/../../../lambdas/catalog_writer.py"
+    "event_validator.py" = "${path.root}/../../../lambdas/event_validator.py"
+  }
+}
+
 data "archive_file" "catalog_writer" {
   type        = "zip"
-  source_file = "${path.root}/../../../lambdas/catalog_writer.py"
   output_path = "${path.module}/.build/catalog_writer.zip"
+
+  dynamic "source" {
+    for_each = local.catalog_writer_sources
+    content {
+      filename = source.key
+      content  = file(source.value)
+    }
+  }
 }
 
 resource "aws_cloudwatch_log_group" "catalog_writer" {

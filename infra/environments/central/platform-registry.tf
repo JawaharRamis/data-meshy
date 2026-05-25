@@ -55,6 +55,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "platform_modules" {
     id     = "expire-old-module-versions"
     status = "Enabled"
 
+    filter {}
+
     noncurrent_version_expiration {
       noncurrent_days = 90
     }

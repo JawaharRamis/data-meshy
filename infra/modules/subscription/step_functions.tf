@@ -56,7 +56,7 @@ resource "aws_sfn_state_machine" "subscription_provisioner" {
 
   tags = merge(local.mandatory_tags, {
     Name    = "subscription-provisioner"
-    Purpose = "Subscription saga — LF grant, resource link creation, compensation"
+    Purpose = "Subscription saga - LF grant + resource link creation + compensation"
   })
 }
 

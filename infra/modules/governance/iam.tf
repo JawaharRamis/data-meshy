@@ -456,11 +456,23 @@ resource "aws_iam_role_policy_attachment" "mesh_admin_admin_policy" {
 }
 
 ###############################################################################
-# CloudWatch alarm — alert on any MeshAdminRole assumption
+# CloudTrail log group + alarm — alert on any MeshAdminRole assumption
+# CloudTrail must be configured to stream to this log group for the metric
+# filter to fire. The group is created here so Terraform owns its lifecycle.
 ###############################################################################
+resource "aws_cloudwatch_log_group" "mesh_cloudtrail" {
+  name              = "/aws/cloudtrail/mesh-central"
+  retention_in_days = 365
+
+  tags = merge(local.mandatory_tags, {
+    Name    = "mesh-cloudtrail"
+    Purpose = "CloudTrail log group for MeshAdminRole assumption alerts"
+  })
+}
+
 resource "aws_cloudwatch_log_metric_filter" "mesh_admin_assumption" {
   name           = "MeshAdminRoleAssumption"
-  log_group_name = "/aws/cloudtrail/mesh-central"
+  log_group_name = aws_cloudwatch_log_group.mesh_cloudtrail.name
   pattern        = "{ ($.eventName = \"AssumeRole\") && ($.requestParameters.roleArn = \"*MeshAdminRole\") }"
 
   metric_transformation {
