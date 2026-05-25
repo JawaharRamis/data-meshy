@@ -47,13 +47,13 @@ variable "organizations_enabled" {
 }
 
 variable "org_id" {
-  description = "AWS Organization ID (o-xxxxxxxxxx). Required when organizations_enabled = true."
+  description = "AWS Organization ID (o-xxxxxxxxxx). Required when organizations_enabled = true. Leave empty when organizations_enabled = false."
   type        = string
   default     = ""
 
   validation {
-    condition     = !var.organizations_enabled || length(var.org_id) > 0
-    error_message = "org_id must be set when organizations_enabled = true."
+    condition     = var.org_id == "" || can(regex("^o-[a-z0-9]{10,32}$", var.org_id))
+    error_message = "org_id must be empty or a valid AWS Organization ID (o-xxxxxxxxxx)."
   }
 }
 
