@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "**/product.yaml"
+  workflow_dispatch: {}
 
 # Primary validation via reusable workflow (calls `datameshy product validate`).
 # Additional platform-specific checks (quality rule column refs, breaking change

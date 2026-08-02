@@ -9,6 +9,7 @@ on:
       - ".github/workflows/infra-plan.yml"
       - ".github/workflows/infra-apply.yml"
       - ".github/workflows/reusable-infra-plan.yml"
+  workflow_dispatch: {}
 
 permissions:
   id-token: write
