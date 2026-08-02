@@ -31,7 +31,7 @@ provider "aws" {
 variable "aws_region" {
   description = "AWS region."
   type        = string
-  default     = "us-east-1"
+  default     = "eu-central-1"
 }
 
 variable "environment" {
