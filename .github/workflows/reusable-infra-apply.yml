@@ -9,13 +9,15 @@ on:
       aws_region:
         description: "AWS region to target."
         type: string
-        default: "us-east-1"
+        default: "eu-central-1"
       tf_dir:
         description: "Terraform working directory (relative to repo root)."
         type: string
         default: "infra/"
     secrets:
       AWS_ACCOUNT_ID:
+        required: true
+      TF_STATE_BUCKET:
         required: true
 
 permissions:
@@ -49,9 +51,12 @@ jobs:
           terraform_version: "1.7.5"
           terraform_wrapper: true
 
+      - name: Write backend config
+        run: echo "bucket = \"${{ secrets.TF_STATE_BUCKET }}\"" > backend.tfbackend
+
       - name: Terraform Init
         id: init
-        run: terraform init -input=false
+        run: terraform init -input=false -backend-config=backend.tfbackend
         env:
           TF_INPUT: "false"
 
