@@ -536,7 +536,7 @@ jobs:
           set -euo pipefail
 
           TARGET="JawaharRamis/${NEW_REPO}"
-          MESH_API_ENDPOINT="${{ vars.MESH_API_ENDPOINT }}"
+          MESH_API_ENDPOINT="${{ secrets.MESH_API_ENDPOINT }}"
 
           echo "${DOMAIN_ROLE_ARN}" | gh secret set AWS_ROLE_ARN      --repo "${TARGET}"
           echo "${MESH_API_ENDPOINT}" | gh secret set MESH_API_ENDPOINT --repo "${TARGET}"
