@@ -16,11 +16,15 @@ resource "aws_cloudwatch_event_bus" "mesh_central" {
 # Bus resource policy — explicitly lists each domain account ID, no wildcards
 ###############################################################################
 resource "aws_cloudwatch_event_bus_policy" "mesh_central_policy" {
+  # Only manage a cross-account policy when there are domain accounts to grant.
+  # With an empty domain list the Statement would be empty, which EventBridge
+  # rejects ("Statement is empty!"), so the resource is skipped entirely.
+  count          = length(var.domain_account_ids) > 0 ? 1 : 0
   event_bus_name = aws_cloudwatch_event_bus.mesh_central.name
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = length(var.domain_account_ids) > 0 ? [
+    Statement = [
       {
         Sid    = "AllowDomainAccountsPutEvents"
         Effect = "Allow"
@@ -30,7 +34,7 @@ resource "aws_cloudwatch_event_bus_policy" "mesh_central_policy" {
         Action   = "events:PutEvents"
         Resource = aws_cloudwatch_event_bus.mesh_central.arn
       }
-    ] : []
+    ]
   })
 }
 
