@@ -9,9 +9,12 @@ terraform {
     # and backend.tfbackend.example for the expected format.
 
     key            = "central/terraform.tfstate"
-    region         = "us-east-1"
+    region         = "eu-central-1"
     dynamodb_table = "data-meshy-tflock-central"
-    kms_key_id     = "alias/mesh-central"
+    # Dedicated state-encryption key, manually created and NEVER managed by
+    # Terraform. Decoupling it from the platform's alias/mesh-central avoids the
+    # destroy trap where teardown deletes the key the backend depends on.
+    kms_key_id     = "alias/mesh-tfstate"
     encrypt        = true
   }
 }

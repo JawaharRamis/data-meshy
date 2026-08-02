@@ -8,7 +8,9 @@
 ###############################################################################
 
 resource "aws_s3_bucket" "platform_modules" {
-  bucket = "data-meshy-platform-modules-${data.aws_caller_identity.central.account_id}"
+  # Region-suffixed so the name is unique per region/deployment and never
+  # collides with a same-account bucket in another region (S3 names are global).
+  bucket = "data-meshy-platform-modules-${var.aws_region}-${data.aws_caller_identity.central.account_id}"
 
   tags = {
     Purpose = "platform-module-registry"

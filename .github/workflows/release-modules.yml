@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      AWS_REGION: us-east-1
+      AWS_REGION: ${{ vars.AWS_REGION }}
 
     steps:
       - name: Checkout repository
@@ -36,7 +36,7 @@ jobs:
         id: bucket
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "name=data-meshy-platform-modules-${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+          echo "name=data-meshy-platform-modules-${AWS_REGION}-${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Package modules
         id: package

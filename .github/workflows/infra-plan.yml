@@ -20,7 +20,8 @@ jobs:
     name: Plan — central
     uses: ./.github/workflows/reusable-infra-plan.yml
     with:
-      aws_region: "us-east-1"
+      aws_region: "eu-central-1"
       tf_dir: "infra/environments/central"
     secrets:
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
