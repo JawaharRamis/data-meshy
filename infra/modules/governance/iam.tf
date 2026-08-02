@@ -22,8 +22,15 @@ locals {
   # Apply role: main-branch only for both platform and domain repos.
   # domain_repo_paths entries use :* for the plan role (any branch can plan);
   # here we rewrite them to :ref:refs/heads/main so only merged code can apply.
+  # The platform repo's apply job also runs under the terraform-apply GitHub
+  # Environment (manual approval gate) — GitHub issues OIDC tokens for
+  # environment-scoped jobs with sub `repo:{org}/{repo}:environment:{name}`
+  # instead of the ref-based sub, so that pattern must be allowed too.
   oidc_apply_subjects = concat(
-    ["repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"],
+    [
+      "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main",
+      "repo:${var.github_org}/${var.github_repo}:environment:terraform-apply",
+    ],
     [for path in var.domain_repo_paths : replace(path, ":*", ":ref:refs/heads/main")]
   )
 }
