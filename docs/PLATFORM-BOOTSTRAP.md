@@ -292,6 +292,9 @@ This is the most error-prone configuration step. Every secret and variable the w
 > [!WARNING]
 > Missing `AWS_ACCOUNT_ID` is the single most common failure. The `reusable-infra-plan.yml` and `reusable-infra-apply.yml` workflows construct the OIDC role ARN as `arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/TerraformPlanRole` and `TerraformApplyRole`. If this secret is missing, OIDC role assumption fails silently with a confusing `Could not assume role` error.
 
+> [!WARNING]
+> Missing `TF_STATE_BUCKET` fails `terraform init` in CI with `Error: Missing Required Value` on `backend.tf`'s `bucket` attribute. `backend.tf` deliberately omits the bucket name (partial backend config, so the central account ID never enters git) — locally you supply it via the gitignored `backend.tfbackend` file, but CI has no such file, so `reusable-infra-plan.yml`/`reusable-infra-apply.yml` write one from this secret before running `terraform init -backend-config=backend.tfbackend`.
+
 ### Repository secrets
 
 Set these at **Settings → Secrets and variables → Actions → Secrets**:
@@ -299,6 +302,7 @@ Set these at **Settings → Secrets and variables → Actions → Secrets**:
 | Secret name | Where value comes from | How to set it |
 |---|---|---|
 | `AWS_ACCOUNT_ID` | Your central account ID — `echo $CENTRAL_ACCOUNT_ID` from step 2 | `gh secret set AWS_ACCOUNT_ID --repo JawaharRamis/data-meshy` |
+| `TF_STATE_BUCKET` | The tfstate bucket name from `backend.tfbackend` (`data-meshy-tfstate-central-<region>-<CENTRAL_ACCOUNT_ID>`) | `gh secret set TF_STATE_BUCKET --repo JawaharRamis/data-meshy --body "data-meshy-tfstate-central-eu1-$CENTRAL_ACCOUNT_ID"` |
 | `ORG_PAT` | A GitHub Personal Access Token scoped to your org | Generate at github.com/settings/tokens (see scope requirements in section 5), then `gh secret set ORG_PAT --repo JawaharRamis/data-meshy` |
 
 ### Repository variables
@@ -329,6 +333,8 @@ For clarity, this table maps every `secrets.*` and `vars.*` reference found in a
 | `infra-apply.yml` | `secrets.AWS_ACCOUNT_ID` | Secret | Central account ID for constructing `TerraformApplyRole` ARN |
 | `reusable-infra-plan.yml` | `secrets.AWS_ACCOUNT_ID` | Secret | Passed from caller |
 | `reusable-infra-apply.yml` | `secrets.AWS_ACCOUNT_ID` | Secret | Passed from caller |
+| `reusable-infra-plan.yml` | `secrets.TF_STATE_BUCKET` | Secret | Passed from caller; written to `backend.tfbackend` before `terraform init` |
+| `reusable-infra-apply.yml` | `secrets.TF_STATE_BUCKET` | Secret | Passed from caller; written to `backend.tfbackend` before `terraform init` |
 | `onboard-domain.yml` | `secrets.AWS_ACCOUNT_ID` | Secret | Used to construct `MeshOnboardingRole` ARN |
 | `onboard-domain.yml` | `vars.MESH_API_ENDPOINT` | Variable | Set as secret on new domain repo |
 | `onboard-domain.yml` | `secrets.ORG_PAT` | Secret | Creates DP repos and opens issues in external repos |
@@ -830,6 +836,7 @@ Once AWS Organizations and IAM Identity Center are fully enabled:
 | Failure | Root cause | Fix |
 |---|---|---|
 | **`Could not assume role` on `infra-plan` or `infra-apply`** | `AWS_ACCOUNT_ID` secret is missing from the repo. The workflow constructs the OIDC role ARN as `arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/TerraformPlanRole`. A blank secret renders this ARN invalid. | Set `AWS_ACCOUNT_ID` at Settings → Secrets. Value is the 12-digit central account ID. |
+| **`terraform init` fails in CI with `Error: Missing Required Value` on `backend.tf`'s `bucket` attribute** | `TF_STATE_BUCKET` secret is missing from the repo. `backend.tf` uses partial backend config (no bucket committed to git); locally you supply it via the gitignored `backend.tfbackend` file, but CI has no such file until `reusable-infra-plan.yml`/`reusable-infra-apply.yml` write one from this secret. | Set `TF_STATE_BUCKET` at Settings → Secrets to the tfstate bucket name (e.g. `data-meshy-tfstate-central-eu1-<CENTRAL_ACCOUNT_ID>`). |
 | **Lambda `ImportModuleError: No module named 'catalog_writer'`** | The Lambda zip was built from a single source file but the handler imports a sibling module. Both `catalog_writer.py` and any shared utility it imports must be included in the same zip. | In `lambdas.tf`, change the `archive_file` data source from `source_file` (single file) to `source_dir` pointing at the directory containing all Lambda files. Re-apply. |
 | **`audit_writer` reads wrong table name** | `audit_writer.py` reads the env var `MESH_AUDIT_TABLE`, but Terraform sets `MESH_AUDIT_LOG_TABLE`. The handler falls back to the hardcoded default `mesh-audit-log` which matches the actual table name, so it works — but any local test that sets `MESH_AUDIT_TABLE` will hit the wrong key. | Either align the env var name in `lambdas.tf` (change to `MESH_AUDIT_TABLE`) or update `audit_writer.py` to read `MESH_AUDIT_LOG_TABLE`. Both approaches are safe — pick one and be consistent. |
 | **First `terraform apply` fails on existing orphaned resources** | A previous partial apply or manual creation left resources that Terraform now wants to create but that already exist. | Use `terraform import` to bring the existing resource under Terraform management. Example: `terraform import aws_kms_alias.mesh_central alias/mesh-central`. Then re-run `terraform apply`. |
