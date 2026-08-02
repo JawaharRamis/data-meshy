@@ -9,6 +9,7 @@ on:
     paths:
       - "lambdas/**"
       - ".github/workflows/lambda-test.yml"
+  workflow_dispatch: {}
 
 jobs:
   test:
