@@ -592,6 +592,17 @@ resource "aws_iam_role_policy" "terraform_plan_policy" {
           "lakeformation:List*"
         ]
         Resource = "*"
+      },
+      {
+        # Terraform's S3 backend acquires a DynamoDB lock even for `plan` —
+        # GetItem/DescribeTable above aren't enough to take/release it.
+        Sid    = "StateLockTable"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem"
+        ]
+        Resource = "arn:aws:dynamodb:${local.region}:${local.account_id}:table/data-meshy-tflock-central"
       }
     ]
   })
