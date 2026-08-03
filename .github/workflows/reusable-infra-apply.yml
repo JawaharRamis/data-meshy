@@ -36,6 +36,7 @@ jobs:
 
     env:
       TF_VAR_aws_region: ${{ inputs.aws_region }}
+      TF_VAR_github_org: "JawaharRamis"
 
     steps:
       - name: Checkout repository
